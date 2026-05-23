@@ -7,7 +7,7 @@
 //	weirctl get state                  print the full state as JSON
 //	weirctl subscribe                  stream state-change events as JSON lines
 //	weirctl wait-for-socket [seconds]  block until weir's socket is up
-//	weirctl help                       list available commands
+//	weirctl help [command]             list commands (works without a running weir)
 //
 // The socket is found via $WEIRSOCK or derived from $WAYLAND_DISPLAY; pass
 // -socket to override.
@@ -24,6 +24,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/psanford/weir/core"
 	"github.com/psanford/weir/ipc"
 )
 
@@ -42,6 +43,21 @@ func main() {
 	if len(args) == 0 {
 		flag.Usage()
 		os.Exit(2)
+	}
+
+	// help is documentation, not introspection: render it from this
+	// binary's own command table so it works without a running weir (and
+	// without even a Wayland session).
+	if args[0] == "help" {
+		out, err := core.NewModel().Dispatch(args)
+		if err != nil {
+			fatal(err)
+		}
+		fmt.Println(out)
+		if len(args) == 1 {
+			fmt.Print(localHelp)
+		}
+		return
 	}
 
 	path := *socket
@@ -82,9 +98,6 @@ func main() {
 	if !resp.Success {
 		fmt.Fprintln(os.Stderr, "weirctl:", resp.Error)
 		os.Exit(1)
-	}
-	if len(args) == 1 && args[0] == "help" {
-		fmt.Print(localHelp)
 	}
 }
 
