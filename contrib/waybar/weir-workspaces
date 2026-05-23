@@ -7,11 +7,29 @@
 # state change in waybar's custom-module format and reconnects if weir
 # restarts.
 #
-# Requires jq. See README.md in this directory for the waybar config.
+# Requires weirctl and jq on waybar's PATH. Waybar inherits the environment
+# of whatever launched it (usually the river init script, which does not
+# source your shell rc files), so if weirctl lives in ~/go/bin you probably
+# need `export PATH="$HOME/go/bin:$PATH"` in the init script before
+# starting waybar. Failures are rendered into the bar rather than hidden.
+#
+# See README.md in this directory for the waybar config.
 set -u
 
+# err renders a message into the bar so failures are visible.
+err() {
+    printf '{"text":"weir: %s","tooltip":"weir-workspaces error: %s","class":"error"}\n' "$1" "$1"
+}
+
+for dep in weirctl jq; do
+    if ! command -v "$dep" >/dev/null 2>&1; then
+        err "$dep not found in PATH"
+        exit 1
+    fi
+done
+
 while :; do
-    weirctl subscribe 2>/dev/null | jq --unbuffered -c '
+    weirctl subscribe | jq --unbuffered -c '
         .state as $s
         | ($s.outputs // [] | map(select(.focused)) | first | .workspace // "") as $cur
         | ($s.workspaces // []
@@ -25,6 +43,7 @@ while :; do
             class: "weir-workspaces"
           }
     '
-    # weir is not running or restarted; try again shortly.
+    # weir is not running or went away; show that and retry.
+    err "not connected"
     sleep 2
 done

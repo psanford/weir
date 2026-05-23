@@ -7,6 +7,14 @@ Feed a `custom` module from weir's control socket instead.
 Install `weir-workspaces` somewhere on your `PATH` (it needs `weirctl` and
 `jq`), then add to `~/.config/waybar/config`:
 
+> **PATH gotcha:** waybar inherits the environment of the river init script,
+> which is a plain `/bin/sh` that never sources your shell rc files. If
+> `weirctl` lives in `~/go/bin`, add `export PATH="$HOME/go/bin:$PATH"` to
+> the init script before `waybar &`. The module renders
+> "weir: weirctl not found in PATH" in the bar if this is the problem; to
+> debug further, run `weir-workspaces` by hand in a terminal inside the
+> session and see what it prints.
+
 ```json
 "modules-left": ["custom/weir"],
 "custom/weir": {
