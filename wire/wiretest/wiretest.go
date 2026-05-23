@@ -131,6 +131,21 @@ func (s *Server) RecvWithFds(bufSize int) (Msg, []int) {
 	return Msg{Object: objID, Opcode: uint16(sizeOp & 0xffff), Body: buf[headerSize:n]}, fds
 }
 
+// HasData reports whether the server side of the socket has unread data
+// available right now, without consuming it.
+func (s *Server) HasData() bool {
+	raw, err := s.Sock.SyscallConn()
+	if err != nil {
+		return false
+	}
+	var n int
+	raw.Control(func(fd uintptr) {
+		buf := make([]byte, 1)
+		n, _, _ = syscall.Recvfrom(int(fd), buf, syscall.MSG_PEEK|syscall.MSG_DONTWAIT)
+	})
+	return n > 0
+}
+
 func (s *Server) readFull(b []byte) (int, error) {
 	n := 0
 	for n < len(b) {

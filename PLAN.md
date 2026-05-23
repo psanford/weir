@@ -174,9 +174,11 @@ Each milestone ends in something runnable and tested.
 - [x] **M2 — wire + codegen**: pure-Go Wayland client connection
       (`wire/`) and a generator that produces typed bindings from river's
       six protocol XML files (`internal/gen/`).
-- [ ] **M3 — `bridge/`**: connect to river, implement the manage/render
-      state machine, diff-and-send the core's Arrangement. Real windows
-      tiling in a nested river session.
+- [x] **M3 — `bridge/`**: connect to river, implement the manage/render
+      state machine, diff-and-send the core's Arrangement. Verified against
+      a fake river compositor that enforces the protocol's sequencing rules;
+      not yet run against a real river (no zig/wlroots in the dev container
+      — see M5).
 - [ ] **M4 — IPC + `weirctl`**: socket server, command/query/subscribe,
       CLI. Everything drivable and inspectable from the shell.
 - [ ] **M5 — headless integration harness**: run river headless in CI,

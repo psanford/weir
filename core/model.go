@@ -300,6 +300,19 @@ func (m *Model) OutputAdded(id OutputID, name string, rect Rect) {
 	m.markChanged()
 }
 
+// OutputRenamed updates an output's name once the compositor reports it
+// (the name typically arrives one round trip after the output itself).
+// In locked workspace mode the output's existing workspaces keep their old
+// internal names; only workspaces resolved after the rename use the new one.
+func (m *Model) OutputRenamed(id OutputID, name string) {
+	out, ok := m.Outputs[id]
+	if !ok || out.Name == name || name == "" {
+		return
+	}
+	out.Name = name
+	m.markChanged()
+}
+
 // OutputGeometry updates an output's position and dimensions.
 func (m *Model) OutputGeometry(id OutputID, rect Rect) {
 	out, ok := m.Outputs[id]
@@ -488,6 +501,45 @@ func (m *Model) setFloating(w *Window, floating bool) {
 			w.pendingFloatCenter = true
 		}
 	}
+	m.markChanged()
+}
+
+// WindowFullscreenRequested handles a window asking to be made fullscreen
+// (e.g. a video player going fullscreen). Policy: honor it. The preferred
+// output may be 0, in which case the output showing the window's workspace
+// is used.
+func (m *Model) WindowFullscreenRequested(id WindowID, preferred OutputID) {
+	w, ok := m.Windows[id]
+	if !ok {
+		return
+	}
+	target := preferred
+	if _, exists := m.Outputs[target]; !exists {
+		target = 0
+	}
+	if target == 0 {
+		target = m.workspaceVisibleOn(w.Workspace)
+	}
+	if target == 0 {
+		target = m.FocusedOutput
+	}
+	if target == 0 {
+		return
+	}
+	if w.FullscreenOn != target {
+		w.FullscreenOn = target
+		m.markChanged()
+	}
+}
+
+// WindowExitFullscreenRequested handles a window asking to leave
+// fullscreen. Policy: honor it.
+func (m *Model) WindowExitFullscreenRequested(id WindowID) {
+	w, ok := m.Windows[id]
+	if !ok || w.FullscreenOn == 0 {
+		return
+	}
+	w.FullscreenOn = 0
 	m.markChanged()
 }
 

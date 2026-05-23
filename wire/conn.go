@@ -307,6 +307,69 @@ func (c *Conn) parseFds(oob []byte) error {
 	return nil
 }
 
+// Packet is a chunk of raw data read from the socket by ReadLoop, to be
+// passed to Feed on the goroutine that owns the connection.
+type Packet struct {
+	Data []byte
+	Fds  []int
+	Err  error
+}
+
+// ReadLoop reads from the socket until an error occurs, sending each chunk
+// of received data over ch. It is intended to run in its own goroutine: it
+// touches only the socket, never the connection's buffers or object map, so
+// the owning goroutine can keep using the connection concurrently. The final
+// packet sent before returning carries the read error.
+//
+// While ReadLoop is running the owning goroutine must not call Dispatch or
+// RoundTrip (which read from the socket directly); use Feed and
+// DispatchPending instead.
+func (c *Conn) ReadLoop(ch chan<- Packet) {
+	for {
+		buf := make([]byte, 4096)
+		oob := make([]byte, 4*28+24)
+		n, oobn, _, _, err := c.sock.ReadMsgUnix(buf, oob)
+		var fds []int
+		if oobn > 0 {
+			if cmsgs, perr := syscall.ParseSocketControlMessage(oob[:oobn]); perr == nil {
+				for _, cmsg := range cmsgs {
+					if got, ferr := syscall.ParseUnixRights(&cmsg); ferr == nil {
+						fds = append(fds, got...)
+					}
+				}
+			}
+		}
+		if err == nil && n == 0 && oobn == 0 {
+			err = errors.New("connection closed by compositor")
+		}
+		ch <- Packet{Data: buf[:n], Fds: fds, Err: err}
+		if err != nil {
+			return
+		}
+	}
+}
+
+// Feed appends data read by ReadLoop to the connection's input buffer and fd
+// queue. Call DispatchPending afterwards to process any complete messages.
+func (c *Conn) Feed(p Packet) error {
+	if p.Err != nil {
+		return c.fatal(fmt.Errorf("wire: read: %w", p.Err))
+	}
+	for _, fd := range p.Fds {
+		syscall.CloseOnExec(fd)
+	}
+	c.recvFds = append(c.recvFds, p.Fds...)
+	// Compact before appending so the buffer doesn't grow without bound.
+	if c.inStart > 0 {
+		copy(c.in[:cap(c.in)], c.in[c.inStart:c.inEnd])
+		c.inEnd -= c.inStart
+		c.inStart = 0
+	}
+	c.in = append(c.in[:c.inEnd], p.Data...)
+	c.inEnd += len(p.Data)
+	return nil
+}
+
 // RoundTrip flushes all buffered requests and blocks until the compositor
 // has processed them, dispatching any events that arrive in the meantime.
 func (c *Conn) RoundTrip() error {
