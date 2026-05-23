@@ -45,7 +45,7 @@ func init() {
 		{"send-to-output", "send-to-output next|prev|left|right|up|down|<name>", "move the focused window to another output", cmdSendToOutput},
 		{"set-layout", "set-layout tile|monocle", "set the focused workspace's layout", cmdSetLayout},
 		{"cycle-layout", "cycle-layout <l>[,<l>...]", "cycle the focused workspace through layouts (monocle|left|right|top|bottom)", cmdCycleLayout},
-		{"set", "set <option> <value>", "set a layout or appearance option", cmdSet},
+		{"set", "set <option> <value...>", "set a layout, appearance, or behavior option (run \"set\" alone to list them)", cmdSet},
 		{"move", "move left|right|up|down <px>", "move the focused window (floating it if tiled)", cmdMove},
 		{"snap", "snap left|right|up|down", "snap the focused window to an output edge (floating it if tiled)", cmdSnap},
 		{"resize", "resize horizontal|vertical <px>", "grow or shrink the focused window (floating it if tiled)", cmdResize},
@@ -530,9 +530,32 @@ func applyLayoutSpec(ws *Workspace, spec string) {
 	ws.Params.MainLocation = loc
 }
 
+// setUsage lists every option the set command accepts. Returned whenever
+// set is invoked without an option or with an unknown one, so the full
+// surface is discoverable from the command line.
+const setUsage = `usage: set <option> <value...>
+
+layout (per workspace):
+  main-ratio <r|+d|-d>             main area fraction of the output (0.1-0.9)
+  main-count <n|+d|-d>             number of windows in the main area
+  main-location left|right|top|bottom
+  gaps <inner> <outer>             pixels between windows / at output edges
+  smart-gaps on|off                drop the gaps when only one window is tiled
+
+appearance:
+  border-width <px>
+  border-color-focused 0xRRGGBB[AA]
+  border-color-unfocused 0xRRGGBB[AA]
+  border-color-urgent 0xRRGGBB[AA]
+  smart-borders on|off             drop the borders when only one window is tiled
+  xcursor-theme <name> [size]
+
+behavior:
+  focus-follows-cursor on|off`
+
 func cmdSet(m *Model, args []string) (string, error) {
 	if len(args) < 1 {
-		return "", cmdErrf("usage: set <option> <value>")
+		return "", cmdErrf("%s", setUsage)
 	}
 	opt, vals := args[0], args[1:]
 	ws := m.focusedWorkspace()
@@ -647,7 +670,7 @@ func cmdSet(m *Model, args []string) (string, error) {
 		m.XcursorTheme = vals[0]
 		m.XcursorSize = uint32(size)
 	default:
-		return "", cmdErrf("unknown option %q", opt)
+		return "", cmdErrf("unknown option %q\n\n%s", opt, setUsage)
 	}
 	m.markChanged()
 	return "", nil
