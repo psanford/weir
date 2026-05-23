@@ -242,7 +242,14 @@ they block daily use.
 - Interactive resize always tracks the bottom-right corner regardless of
   which edge a CSD titlebar drag requested.
 - xdg-activation requests (an app asking to be focused/marked urgent) are
-  ignored; the urgent border color is defined but never used.
+  ignored; the urgent border color is defined but never used. **Blocked on
+  river:** the compositor receives and validates activation requests but
+  does not forward them to the window manager (Server.zig
+  handleRequestActivate has a TODO for a protocol extension). Once an
+  activation event exists: focus-or-mark-urgent policy, urgent border and
+  snapshot field, focus-urgent command. Until then a focus-by-app-id
+  command (run-or-raise) covers the common use case without compositor
+  support.
 - Maximize, minimize, and window-menu requests from clients are ignored
   (capabilities advertise fullscreen only, so compliant clients hide those
   buttons).
