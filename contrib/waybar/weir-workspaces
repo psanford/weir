@@ -2,10 +2,20 @@
 # Waybar custom module showing weir workspaces.
 #
 # river 0.4 removed the river-status protocol, so waybar's built-in
-# "river/tags" module does not work. This script feeds a "custom" module
-# from weir's state-change subscription instead. It prints one JSON line per
-# state change in waybar's custom-module format and reconnects if weir
-# restarts.
+# "river/tags" module does not work. This script feeds "custom" modules from
+# weir's state-change subscription instead.
+#
+# Two modes:
+#
+#   weir-workspaces          One module showing every workspace in a single
+#                            label. Compact config, but the whole label is
+#                            one click target.
+#
+#   weir-workspaces <name>   One module per workspace. Emits the workspace
+#                            name as text and one of the CSS classes
+#                            focused|visible|occupied|empty, so each
+#                            workspace is its own clickable, stylable
+#                            button. Pair with "on-click": "weirctl view N".
 #
 # Requires weirctl and jq on waybar's PATH. Waybar inherits the environment
 # of whatever launched it (usually the river init script, which does not
@@ -13,7 +23,7 @@
 # need `export PATH="$HOME/go/bin:$PATH"` in the init script before
 # starting waybar. Failures are rendered into the bar rather than hidden.
 #
-# See README.md in this directory for the waybar config.
+# See README.md in this directory for the waybar config and CSS.
 set -u
 
 # err renders a message into the bar so failures are visible.
@@ -28,21 +38,59 @@ for dep in weirctl jq; do
     fi
 done
 
-while :; do
-    weirctl subscribe | jq --unbuffered -c '
+ws="${1:-}"
+
+# Workspace names are compared by their user-facing form: in locked
+# workspace mode the internal names are "3@DP-1" but the user thinks of the
+# workspace as "3".
+if [ -n "$ws" ]; then
+    # Per-workspace mode: text is the workspace name, class is its state.
+    filter='
         .state as $s
-        | ($s.outputs // [] | map(select(.focused)) | first | .workspace // "") as $cur
+        | ($s.outputs // [] | map(select(.focused)) | first | .workspace // ""
+            | split("@")[0]) as $focused
         | ($s.workspaces // []
-            | map(select(.visible or ((.windows // []) | length > 0)))
-            | map(.name)) as $names
-        | (if ($names | index($cur)) == null and $cur != "" then $names + [$cur] else $names end
-            | sort) as $names
+            | map(select((.name | split("@")[0]) == $ws))) as $matches
         | {
-            text: ($names | map(if . == $cur then "<b>[\(.)]</b>" else " \(.) " end) | join("")),
-            tooltip: ("workspace \($cur) focused"),
+            text: $ws,
+            class: (
+              if $ws == $focused then "focused"
+              elif ($matches | any(.visible)) then "visible"
+              elif ($matches | map((.windows // []) | length) | add // 0) > 0 then "occupied"
+              else "empty"
+              end
+            ),
+            tooltip: ("workspace " + $ws)
+          }
+    '
+else
+    # Single-module mode: every workspace in one label, focused bracketed,
+    # occupied marked with a dot.
+    filter='
+        .state as $s
+        | ($s.outputs // [] | map(select(.focused)) | first | .workspace // ""
+            | split("@")[0]) as $focused
+        | ($s.workspaces // []
+            | group_by(.name | split("@")[0])
+            | map({
+                name: (.[0].name | split("@")[0]),
+                occupied: (map((.windows // []) | length) | add // 0) > 0
+              })
+            | sort_by(.name)) as $all
+        | {
+            text: ($all | map(
+                if .name == $focused then "<b>[\(.name)]</b>"
+                elif .occupied then " \(.name)·"
+                else " \(.name) "
+                end) | join("")),
+            tooltip: ("workspace \($focused) focused"),
             class: "weir-workspaces"
           }
     '
+fi
+
+while :; do
+    weirctl subscribe | jq --unbuffered -c --arg ws "$ws" "$filter"
     # weir is not running or went away; show that and retry.
     err "not connected"
     sleep 2
