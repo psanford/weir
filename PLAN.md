@@ -233,8 +233,13 @@ they block daily use.
 ### Untested territory
 
 - Xwayland windows (override-redirect popups, position hints).
-- Crash-restart recovery (designed: river re-sends all state to a new WM
-  client; never exercised outside of theory).
+- ~~Crash-restart recovery~~ — now verified against real river: killing
+  weir leaves windows frozen but alive, and a new weir takes over cleanly
+  with no protocol errors. However all runtime state is lost: every window
+  lands back on workspace 1 with default settings, and bindings/rules must
+  be re-registered. Making restarts lossless needs the window `identifier`
+  event (protocol v4, designed for exactly this) plus serializing the
+  model to disk on exit and matching windows back up on startup.
 - Session lock interaction (weir logs the events and otherwise ignores them).
 - Real multi-monitor hardware (mixed scale factors in particular).
 
