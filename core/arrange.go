@@ -81,6 +81,10 @@ func (m *Model) Arrange() Arrangement {
 		}
 
 		tiled, floating, fullscreen := partition(m, ws)
+		var focusedID WindowID
+		if ws.Focus >= 0 && ws.Focus < len(ws.Windows) {
+			focusedID = ws.Windows[ws.Focus]
+		}
 
 		// Lay out the tiled windows within the usable area (the output
 		// minus any layer shell exclusive zones).
@@ -93,11 +97,14 @@ func (m *Model) Arrange() Arrangement {
 			p.Rect = rects[i]
 			p.Tiled = tiledEdges(rects[i], rects, usable)
 			if !smartBorderless {
-				p.Border = m.borderFor(ws, i)
+				p.Border = m.borderFor(ws, indexOf(ws.Windows, id))
 			}
 			arr.Placements[id] = p
-			tiledOrder = append(tiledOrder, id)
 		}
+		// Render order within the tiled group is stack order with the
+		// focused window raised to the top, so it is visible in layouts
+		// where windows overlap (monocle).
+		tiledOrder = append(tiledOrder, raiseToTop(tiled, focusedID)...)
 
 		for _, id := range floating {
 			w := m.Windows[id]
@@ -106,8 +113,10 @@ func (m *Model) Arrange() Arrangement {
 			p.Rect = w.FloatRect
 			p.Border = m.borderFor(ws, indexOf(ws.Windows, id))
 			arr.Placements[id] = p
-			floatOrder = append(floatOrder, id)
 		}
+		// The focused floating window likewise renders above its floating
+		// siblings.
+		floatOrder = append(floatOrder, raiseToTop(floating, focusedID)...)
 
 		for _, id := range fullscreen {
 			w := m.Windows[id]
@@ -214,6 +223,21 @@ func anyAdjacent(all []Rect, r Rect, edge Edges) bool {
 
 func spansOverlap(a, alen, b, blen int32) bool {
 	return a < b+blen && b < a+alen
+}
+
+// raiseToTop returns ids with the given id moved to the end (the top of the
+// rendering order), or ids unchanged if id is not present. The input slice
+// is not modified.
+func raiseToTop(ids []WindowID, id WindowID) []WindowID {
+	i := indexOf(ids, id)
+	if i < 0 || i == len(ids)-1 {
+		return ids
+	}
+	out := make([]WindowID, 0, len(ids))
+	out = append(out, ids[:i]...)
+	out = append(out, ids[i+1:]...)
+	out = append(out, id)
+	return out
 }
 
 func indexOf(ids []WindowID, id WindowID) int {
