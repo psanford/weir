@@ -1,0 +1,14 @@
+# demonstrate graceful output removal: windows survive and stay reachable
+output add DP-1 0 0 1920 1080
+output add HDMI-A-1 1920 0 1920 1080
+window add a
+window add b
+cmd focus-output right
+window add c
+show
+# unplug the second monitor: workspace 2 (with window c) becomes hidden
+output remove HDMI-A-1
+show
+# its windows are still there
+cmd view 2
+show

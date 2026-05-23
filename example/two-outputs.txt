@@ -1,0 +1,15 @@
+# two outputs, a few windows, xmonad-style tiling
+output add DP-1 0 0 1920 1080
+output add HDMI-A-1 1920 0 2560 1440
+window add term
+window add editor
+window add browser
+cmd set main-ratio 0.55
+show
+# promote the browser to main
+cmd zoom
+show
+# send the editor to the second output
+cmd focus next
+cmd send-to-output right
+show
