@@ -108,6 +108,11 @@ type Model struct {
 	// startup. More are created on demand by view/send.
 	DefaultWorkspaces []string
 
+	// lastShown remembers which workspace each output (by name) was
+	// showing when it was removed, so re-plugging a monitor restores its
+	// workspace rather than assigning an arbitrary hidden one.
+	lastShown map[string]string
+
 	// Settings that apply to new windows / all windows.
 	Borders BorderConfig
 
@@ -178,6 +183,7 @@ func NewModel() *Model {
 		Borders:           DefaultBorders(),
 		Bindings:          make(map[bindingKey]Binding),
 		PointerBindings:   make(map[pointerBindingKey]PointerBinding),
+		lastShown:         make(map[string]string),
 	}
 }
 
@@ -305,8 +311,10 @@ func (m *Model) removeFromWorkspace(w *Window) {
 // Output events
 // ---------------------------------------------------------------------------
 
-// OutputAdded records a new output. The output immediately shows a hidden
-// workspace (creating one if necessary).
+// OutputAdded records a new output. The output shows the workspace it was
+// showing when an output of the same name was last removed, if that
+// workspace is still hidden; otherwise it shows the next hidden workspace
+// (creating one if necessary).
 func (m *Model) OutputAdded(id OutputID, name string, rect Rect) {
 	if _, exists := m.Outputs[id]; exists {
 		return
@@ -314,7 +322,12 @@ func (m *Model) OutputAdded(id OutputID, name string, rect Rect) {
 	out := &Output{ID: id, Name: name, Rect: rect}
 	m.Outputs[id] = out
 	m.outputOrder = append(m.outputOrder, id)
-	out.Workspace = m.nextHiddenWorkspace(id)
+	if prev, ok := m.lastShown[name]; ok && m.workspaceVisibleOn(prev) == 0 {
+		m.ensureWorkspace(prev)
+		out.Workspace = prev
+	} else {
+		out.Workspace = m.nextHiddenWorkspace(id)
+	}
 	if m.FocusedOutput == 0 {
 		m.FocusedOutput = id
 	}
@@ -325,12 +338,24 @@ func (m *Model) OutputAdded(id OutputID, name string, rect Rect) {
 // (the name typically arrives one round trip after the output itself).
 // In locked workspace mode the output's existing workspaces keep their old
 // internal names; only workspaces resolved after the rename use the new one.
+//
+// Because the real name arrives after OutputAdded, workspace restoration
+// for a re-plugged monitor happens here: if an output with this name was
+// previously removed while showing a workspace that is still hidden, and
+// this output is still showing the empty workspace it was auto-assigned,
+// switch to the remembered one.
 func (m *Model) OutputRenamed(id OutputID, name string) {
 	out, ok := m.Outputs[id]
 	if !ok || out.Name == name || name == "" {
 		return
 	}
 	out.Name = name
+	if prev, ok := m.lastShown[name]; ok && prev != out.Workspace && m.workspaceVisibleOn(prev) == 0 {
+		if cur := m.Workspaces[out.Workspace]; cur != nil && len(cur.Windows) == 0 {
+			m.ensureWorkspace(prev)
+			out.Workspace = prev
+		}
+	}
 	m.markChanged()
 }
 
@@ -351,9 +376,11 @@ func (m *Model) OutputGeometry(id OutputID, rect Rect) {
 // hidden; windows are never lost. Focus moves to another output if one
 // exists.
 func (m *Model) OutputRemoved(id OutputID) {
-	if _, ok := m.Outputs[id]; !ok {
+	out, ok := m.Outputs[id]
+	if !ok {
 		return
 	}
+	m.lastShown[out.Name] = out.Workspace
 	delete(m.Outputs, id)
 	for i, oid := range m.outputOrder {
 		if oid == id {

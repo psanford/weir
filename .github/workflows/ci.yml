@@ -1,0 +1,56 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  # Unit, property, and protocol tests. No compositor needed.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - name: gofmt
+        run: |
+          out="$(gofmt -l .)"
+          if [ -n "$out" ]; then echo "unformatted files:"; echo "$out"; exit 1; fi
+      - name: go vet
+        run: go vet ./...
+      - name: go test
+        run: go test ./... -race -count=1
+      - name: generated code is up to date
+        run: |
+          go generate ./...
+          git diff --exit-code -- protocols/
+
+  # Integration tests against a real headless river. River, foot, wtype, and
+  # wlr-randr come prebuilt from the nixpkgs binary cache; wlroots'
+  # headless backend and pixman renderer need no GPU or display.
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - uses: cachix/install-nix-action@v30
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+      - name: fetch river and test clients
+        run: |
+          out="$(nix-build --no-out-link -E 'with import <nixpkgs> {}; [ river foot wtype wlr-randr ]')"
+          echo "RIVER=$(echo "$out" | grep -- '-river-')/bin/river" >> "$GITHUB_ENV"
+          echo "FOOT=$(echo "$out" | grep -- '-foot-')/bin/foot" >> "$GITHUB_ENV"
+          echo "WTYPE=$(echo "$out" | grep -- '-wtype-')/bin/wtype" >> "$GITHUB_ENV"
+          echo "WLR_RANDR=$(echo "$out" | grep -- '-wlr-randr-')/bin/wlr-randr" >> "$GITHUB_ENV"
+          "$(echo "$out" | grep -- '-river-')/bin/river" -version
+      - name: smoke test
+        run: scripts/smoke-test.sh
+      - name: integration test
+        run: scripts/integration-test.sh
+      - name: multi-output integration test
+        run: scripts/integration-test-multioutput.sh

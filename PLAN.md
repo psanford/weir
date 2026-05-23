@@ -181,17 +181,29 @@ Each milestone ends in something runnable and tested.
       — see M5).
 - [x] **M4 — IPC + `weirctl`**: socket server, command/query/subscribe,
       CLI. Everything drivable and inspectable from the shell.
-- [ ] **M5 — headless integration harness**: run river headless in CI,
+- [x] **M5 — headless integration harness**: run river headless in CI,
       spawn test clients, assert via `weirctl`. Output hotplug tests using
-      headless virtual outputs. (Partially done: scripts/integration-test.sh
-      asserts 14 weirctl-driven checks against a real headless river;
-      remaining work is CI wiring and multi-output coverage.)
+      headless virtual outputs (disabled and re-enabled with wlr-randr).
+      `.github/workflows/ci.yml` runs the unit suite and all three
+      compositor-backed test scripts.
 - [x] **M6 — input**: keyboard bindings (`river-xkb-bindings-v1`), pointer
       bindings + interactive move/resize (`op_start_pointer`), focus follows
       interaction policy, spawn. Key presses are integration-tested end to
       end by injecting them through a virtual keyboard (wtype).
-- [ ] **M7 — multi-output polish**: locked workspace mode, directional
-      navigation, output remove/re-add restoration.
+- [x] **M7 — multi-output polish**: locked workspace mode, directional
+      navigation, output remove/re-add restoration (an output that comes
+      back gets the workspace it was showing when it left, keyed by output
+      name so it survives the synthetic-name-then-rename dance).
+
+## Beyond the initial plan
+
+Ideas that have come up but are deliberately not part of v1:
+
+- Per-edge interactive resize (currently always bottom-right).
+- Window rules (`rule add app-id=mpv float`).
+- An i3-compatible IPC shim so existing bar integrations work unmodified.
+- Layout plugins as external processes.
+- Multi-seat support.
 
 ## Reference material
 
