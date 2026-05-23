@@ -43,12 +43,13 @@ func TestFixedSizeWindowFloats(t *testing.T) {
 		t.Errorf("no-float rule did not override the fixed-size float")
 	}
 
-	// A hint that arrives after the window is already displayed does not
-	// yank it into floating.
+	// A fixed-size hint that arrives after the window has already been
+	// displayed still floats it: clients often only learn their natural
+	// size after their first layout pass.
 	m.WindowAdded(15)
 	m.WindowDimensions(15, 960, 540)
 	m.WindowDimensionsHint(15, 500, 500, 500, 500)
-	if m.Windows[15].Floating {
-		t.Errorf("late fixed-size hint floated an already-displayed window")
+	if !m.Windows[15].Floating {
+		t.Errorf("late fixed-size hint did not float the window")
 	}
 }

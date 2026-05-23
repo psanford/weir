@@ -565,9 +565,11 @@ func (m *Model) WindowParent(id WindowID, parent WindowID) {
 //
 // A window that declares a fixed size in either dimension (min == max,
 // non-zero) cannot be resized by the layout, so tiling it is pointless:
-// it floats by default, like a dialog. Window rules run afterwards so an
-// explicit no-float rule can override this, and like all default-float
-// decisions it only applies before the window is first displayed.
+// it floats, like a dialog. Clients typically only learn their natural
+// size (and therefore set min == max) after their first layout pass, which
+// can be after the window has already been displayed once, so unlike
+// rules this is not gated on the window never having been shown. Window
+// rules run afterwards so an explicit no-float rule can still override it.
 func (m *Model) WindowDimensionsHint(id WindowID, minW, minH, maxW, maxH int32) {
 	w, ok := m.Windows[id]
 	if !ok {
@@ -575,7 +577,7 @@ func (m *Model) WindowDimensionsHint(id WindowID, minW, minH, maxW, maxH int32) 
 	}
 	w.MinW, w.MinH, w.MaxW, w.MaxH = minW, minH, maxW, maxH
 	fixed := (minW != 0 && minW == maxW) || (minH != 0 && minH == maxH)
-	if fixed && !w.Floating && w.ActualW == 0 && w.ActualH == 0 {
+	if fixed && !w.Floating {
 		m.setFloating(w, true)
 	}
 	m.applyRules(w)
