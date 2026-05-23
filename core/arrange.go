@@ -82,14 +82,16 @@ func (m *Model) Arrange() Arrangement {
 
 		tiled, floating, fullscreen := partition(m, ws)
 
-		// Lay out the tiled windows.
-		rects := ComputeLayout(ws.Layout, out.Rect, len(tiled), ws.Params)
+		// Lay out the tiled windows within the usable area (the output
+		// minus any layer shell exclusive zones).
+		usable := out.Usable()
+		rects := ComputeLayout(ws.Layout, usable, len(tiled), ws.Params)
 		smartBorderless := m.Borders.SmartBorders && len(tiled) == 1 && len(fullscreen) == 0
 		for i, id := range tiled {
 			p := arr.Placements[id]
 			p.Visible = true
 			p.Rect = rects[i]
-			p.Tiled = tiledEdges(rects[i], rects, out.Rect)
+			p.Tiled = tiledEdges(rects[i], rects, usable)
 			if !smartBorderless {
 				p.Border = m.borderFor(ws, i)
 			}

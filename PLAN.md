@@ -202,6 +202,8 @@ Ideas that have come up but are deliberately not part of v1:
 - Per-edge interactive resize (currently always bottom-right).
 - Window rules (`rule add app-id=mpv float`).
 - An i3-compatible IPC shim so existing bar integrations work unmodified.
+- Per-edge layer shell handling refinements (weir currently honors the
+  compositor-computed non-exclusive area as-is).
 - Layout plugins as external processes.
 - Multi-seat support.
 

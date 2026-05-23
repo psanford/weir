@@ -36,6 +36,23 @@ type Bridge struct {
 	// xkbBindings is the river_xkb_bindings_v1 global, or nil if the
 	// compositor does not advertise it (key bindings are then disabled).
 	xkbBindings *river.XkbBindingsV1
+	// layerShell is the river_layer_shell_v1 global, or nil if the
+	// compositor does not advertise it. Binding it is what allows layer
+	// shell clients (bars, launchers, notification daemons, wallpaper) to
+	// map at all: the compositor closes their surfaces immediately if the
+	// window manager does not declare support.
+	layerShell *river.LayerShellV1
+	// layerShellSeat receives keyboard focus handoff events for layer
+	// surfaces on the (single) seat.
+	layerShellSeat *river.LayerShellSeatV1
+	// layerFocus tracks whether a layer surface currently holds keyboard
+	// focus (exclusively or not). While it does, weir's focus requests are
+	// ignored by the compositor, so focus must be re-asserted when the
+	// layer surface lets go.
+	layerFocus bool
+	// defaultLayerOutput is the output most recently marked as the default
+	// for layer surfaces that do not request a specific output.
+	defaultLayerOutput core.OutputID
 	// keyBindings and pointerBindings track the protocol objects created
 	// for each model binding.
 	keyBindings     map[chord]*keyBindingState
@@ -115,6 +132,9 @@ type outputState struct {
 	id    core.OutputID
 	proxy *river.OutputV1
 	wlOut *wl.Output
+	// layerShell receives non_exclusive_area events for this output, and
+	// is the handle for marking it as the default layer surface output.
+	layerShell *river.LayerShellOutputV1
 
 	name    string
 	rect    core.Rect
@@ -150,6 +170,8 @@ func (b *Bridge) Bootstrap() error {
 	found := false
 	var xkbName, xkbVersion uint32
 	xkbFound := false
+	var lsName, lsVersion uint32
+	lsFound := false
 	b.registry.OnGlobal = func(name uint32, iface string, version uint32) {
 		switch iface {
 		case river.WindowManagerV1Name:
@@ -158,6 +180,9 @@ func (b *Bridge) Bootstrap() error {
 		case river.XkbBindingsV1Name:
 			xkbName, xkbVersion = name, version
 			xkbFound = true
+		case river.LayerShellV1Name:
+			lsName, lsVersion = name, version
+			lsFound = true
 		case wl.OutputName:
 			b.outputGlobals[name] = version
 		}
@@ -183,6 +208,14 @@ func (b *Bridge) Bootstrap() error {
 		b.xkbBindings = river.BindXkbBindingsV1(b.registry, xkbName, xkbVersion)
 	} else {
 		b.log.Warn("compositor does not advertise river_xkb_bindings_v1; key bindings are disabled")
+	}
+	if lsFound {
+		if lsVersion > river.LayerShellV1Version {
+			lsVersion = river.LayerShellV1Version
+		}
+		b.layerShell = river.BindLayerShellV1(b.registry, lsName, lsVersion)
+	} else {
+		b.log.Warn("compositor does not advertise river_layer_shell_v1; bars, launchers, and wallpaper will not work")
 	}
 	// A round trip guarantees we see unavailable (if it is coming) before
 	// we start doing real work: the protocol promises unavailable is the
@@ -330,6 +363,14 @@ func (b *Bridge) addOutput(o *river.OutputV1) {
 	b.outputs[os.id] = os
 	b.log.Debug("output added", "id", os.id)
 
+	if b.layerShell != nil {
+		os.layerShell = b.layerShell.GetOutput(o)
+		os.layerShell.OnNonExclusiveArea = func(x, y, w, h int32) {
+			b.log.Debug("layer shell non-exclusive area", "output", os.id, "area", core.Rect{X: x, Y: y, W: w, H: h})
+			b.model.OutputUsableArea(os.id, core.Rect{X: x, Y: y, W: w, H: h})
+		}
+	}
+
 	o.OnWlOutput = func(globalName uint32) {
 		// Bind the corresponding wl_output to learn its name ("DP-1").
 		// The name event requires wl_output version 4; on older
@@ -365,9 +406,16 @@ func (b *Bridge) addOutput(o *river.OutputV1) {
 			b.model.OutputRemoved(os.id)
 		}
 		delete(b.outputs, os.id)
+		if b.defaultLayerOutput == os.id {
+			b.defaultLayerOutput = 0
+		}
 		if os.wlOut != nil {
 			os.wlOut.Release()
 			os.wlOut = nil
+		}
+		if os.layerShell != nil {
+			os.layerShell.Destroy()
+			os.layerShell = nil
 		}
 		o.Destroy()
 	}
@@ -401,7 +449,30 @@ func (b *Bridge) addSeat(s *river.SeatV1) {
 	b.seat = s
 	s.OnRemoved = func() {
 		b.seat = nil
+		if b.layerShellSeat != nil {
+			b.layerShellSeat.Destroy()
+			b.layerShellSeat = nil
+		}
 		s.Destroy()
+	}
+	if b.layerShell != nil {
+		b.layerShellSeat = b.layerShell.GetSeat(s)
+		b.layerShellSeat.OnFocusExclusive = func() {
+			b.log.Debug("layer surface took exclusive focus")
+			b.layerFocus = true
+		}
+		b.layerShellSeat.OnFocusNonExclusive = func() {
+			b.log.Debug("layer surface took non-exclusive focus")
+			b.layerFocus = true
+		}
+		b.layerShellSeat.OnFocusNone = func() {
+			b.log.Debug("layer surface released focus")
+			b.layerFocus = false
+			// The compositor ignored any focus requests while the layer
+			// surface held focus; force the next manage sequence to
+			// re-assert focus on the focused window.
+			b.focusSent = false
+		}
 	}
 	s.OnWindowInteraction = func(w *river.WindowV1) {
 		if id := b.idForProxy(w); id != 0 {
@@ -460,8 +531,10 @@ func (b *Bridge) manage() {
 		b.applyWindowManageState(ws, p)
 	}
 
-	// Keyboard focus.
-	if b.seat != nil {
+	// Keyboard focus. While a layer surface holds focus the compositor
+	// ignores these requests anyway; skip them so the diffing state stays
+	// accurate and focus is re-asserted once the layer surface lets go.
+	if b.seat != nil && !b.layerFocus {
 		focus := b.arrangement.Focus
 		if focus != b.lastFocus || !b.focusSent {
 			if ws, ok := b.windows[focus]; ok && focus != 0 {
@@ -471,6 +544,15 @@ func (b *Bridge) manage() {
 			}
 			b.lastFocus = focus
 			b.focusSent = true
+		}
+	}
+
+	// Layer surfaces that do not request a specific output appear on the
+	// focused output.
+	if b.model.FocusedOutput != b.defaultLayerOutput {
+		if os, ok := b.outputs[b.model.FocusedOutput]; ok && os.layerShell != nil {
+			os.layerShell.SetDefault()
+			b.defaultLayerOutput = b.model.FocusedOutput
 		}
 	}
 

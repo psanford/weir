@@ -31,6 +31,17 @@ type OutputSnapshot struct {
 	Height    int32  `json:"height"`
 	Workspace string `json:"workspace"`
 	Focused   bool   `json:"focused"`
+	// Usable is the area windows are arranged within after layer shell
+	// surfaces (bars, docks) reserve their exclusive zones. Equal to the
+	// output geometry when nothing is reserved.
+	Usable RectSnapshot `json:"usable"`
+}
+
+type RectSnapshot struct {
+	X      int32 `json:"x"`
+	Y      int32 `json:"y"`
+	Width  int32 `json:"width"`
+	Height int32 `json:"height"`
 }
 
 type WorkspaceSnapshot struct {
@@ -73,6 +84,7 @@ func (m *Model) Snapshot() Snapshot {
 
 	for _, id := range m.outputOrder {
 		out := m.Outputs[id]
+		usable := out.Usable()
 		s.Outputs = append(s.Outputs, OutputSnapshot{
 			Name:      out.Name,
 			X:         out.Rect.X,
@@ -81,6 +93,7 @@ func (m *Model) Snapshot() Snapshot {
 			Height:    out.Rect.H,
 			Workspace: out.Workspace,
 			Focused:   id == m.FocusedOutput,
+			Usable:    RectSnapshot{X: usable.X, Y: usable.Y, Width: usable.W, Height: usable.H},
 		})
 	}
 

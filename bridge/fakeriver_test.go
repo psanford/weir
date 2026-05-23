@@ -161,6 +161,17 @@ func classify(iface string, opcode uint16) reqKind {
 		default: // set_layout_override / enable / disable
 			return kindManage
 		}
+	case "river_layer_shell_v1":
+		return kindNeutral // destroy / get_output / get_seat
+	case "river_layer_shell_output_v1":
+		switch opcode {
+		case lsOutputReqSetDefault:
+			return kindManage
+		default: // destroy
+			return kindNeutral
+		}
+	case "river_layer_shell_seat_v1":
+		return kindNeutral
 	}
 	return kindNeutral
 }
@@ -189,8 +200,15 @@ type fakeRiver struct {
 	registryID   uint32
 	wmID         uint32
 	xkbID        uint32
+	layerShellID uint32
 	// seatID is the most recently added seat's object ID.
 	seatID uint32
+	// layerShellOutputs maps river_output_v1 IDs to the
+	// river_layer_shell_output_v1 the client created for them.
+	layerShellOutputs map[uint32]uint32
+	// layerShellSeatID is the river_layer_shell_seat_v1 the client created
+	// for the seat, or 0.
+	layerShellSeatID uint32
 	// ifaces maps every known object ID to its interface name so requests
 	// can be classified. Populated from bind/get_node/new_id requests and
 	// from the server's own object announcements.
@@ -207,12 +225,13 @@ func newFakeRiver(t *testing.T) (*fakeRiver, *Bridge) {
 	model := core.NewModel()
 	b := New(conn, model, nil)
 	f := &fakeRiver{
-		t:            t,
-		conn:         conn,
-		server:       server,
-		bridge:       b,
-		nextServerID: 0xff000000,
-		ifaces:       map[uint32]string{1: "wl_display"},
+		t:                 t,
+		conn:              conn,
+		server:            server,
+		bridge:            b,
+		nextServerID:      0xff000000,
+		ifaces:            map[uint32]string{1: "wl_display"},
+		layerShellOutputs: make(map[uint32]uint32),
 	}
 	f.bootstrap()
 	return f, b
@@ -232,22 +251,25 @@ func (f *fakeRiver) bootstrap() {
 	d := m.Decoder()
 	f.registryID, _ = d.Uint()
 	f.ifaces[f.registryID] = "wl_registry"
-	// Announce the window manager global as name 7 and the xkb bindings
-	// global as name 8.
-	e := &wire.Encoder{}
-	e.PutUint(7)
-	e.PutString(river.WindowManagerV1Name)
-	e.PutUint(river.WindowManagerV1Version)
-	f.server.Send(f.registryID, 0, e)
-	e = &wire.Encoder{}
-	e.PutUint(8)
-	e.PutString(river.XkbBindingsV1Name)
-	e.PutUint(river.XkbBindingsV1Version)
-	f.server.Send(f.registryID, 0, e)
+	// Announce the window manager, xkb bindings, and layer shell globals.
+	for i, iface := range []struct {
+		name    string
+		version uint32
+	}{
+		{river.WindowManagerV1Name, river.WindowManagerV1Version},
+		{river.XkbBindingsV1Name, river.XkbBindingsV1Version},
+		{river.LayerShellV1Name, river.LayerShellV1Version},
+	} {
+		e := &wire.Encoder{}
+		e.PutUint(uint32(7 + i))
+		e.PutString(iface.name)
+		e.PutUint(iface.version)
+		f.server.Send(f.registryID, 0, e)
+	}
 	// sync #1
 	f.respondSync()
-	// bind x2 (window manager, then xkb bindings)
-	for i := 0; i < 2; i++ {
+	// bind x3
+	for i := 0; i < 3; i++ {
 		m = f.server.Recv()
 		if m.Object != f.registryID || m.Opcode != 0 {
 			f.t.Errorf("expected registry.bind, got %d.%d", m.Object, m.Opcode)
@@ -263,10 +285,12 @@ func (f *fakeRiver) bootstrap() {
 			f.wmID = id
 		case river.XkbBindingsV1Name:
 			f.xkbID = id
+		case river.LayerShellV1Name:
+			f.layerShellID = id
 		}
 	}
-	if f.wmID == 0 || f.xkbID == 0 {
-		f.t.Errorf("client did not bind both globals (wm=%d xkb=%d)", f.wmID, f.xkbID)
+	if f.wmID == 0 || f.xkbID == 0 || f.layerShellID == 0 {
+		f.t.Errorf("client did not bind all globals (wm=%d xkb=%d ls=%d)", f.wmID, f.xkbID, f.layerShellID)
 	}
 	// sync #2
 	f.respondSync()
@@ -353,6 +377,17 @@ func (f *fakeRiver) handleRequest(m wiretest.Msg) {
 		d := req.decoder()
 		id, _ := d.Uint()
 		f.ifaces[id] = "river_pointer_binding_v1"
+	case iface == "river_layer_shell_v1" && m.Opcode == lsReqGetOutput:
+		d := req.decoder()
+		id, _ := d.Uint()
+		outID, _ := d.Object()
+		f.ifaces[id] = "river_layer_shell_output_v1"
+		f.layerShellOutputs[outID] = id
+	case iface == "river_layer_shell_v1" && m.Opcode == lsReqGetSeat:
+		d := req.decoder()
+		id, _ := d.Uint()
+		f.ifaces[id] = "river_layer_shell_seat_v1"
+		f.layerShellSeatID = id
 	case iface == "wl_registry" && m.Opcode == 0:
 		// bind: record the new object's interface.
 		d := req.decoder()

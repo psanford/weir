@@ -79,8 +79,22 @@ type Output struct {
 	ID   OutputID
 	Name string
 	Rect Rect
+	// usable is the area remaining after layer shell surfaces (bars, docks)
+	// reserve their exclusive zones. Zero means the full Rect is usable.
+	// Tiled and floating windows are arranged within the usable area;
+	// fullscreen windows cover the full Rect.
+	usable Rect
 	// Workspace is the internal name of the workspace shown on this output.
 	Workspace string
+}
+
+// Usable returns the area of the output that windows should be arranged
+// within: the output geometry minus any layer shell exclusive zones.
+func (o *Output) Usable() Rect {
+	if o.usable.Empty() {
+		return o.Rect
+	}
+	return o.usable
 }
 
 // Model is the complete window-management state. It is a plain value-ish
@@ -369,6 +383,27 @@ func (m *Model) OutputGeometry(id OutputID, rect Rect) {
 		return
 	}
 	out.Rect = rect
+	// The usable area is stale until the compositor reports a new one.
+	out.usable = Rect{}
+	m.markChanged()
+}
+
+// OutputUsableArea records the area of the output remaining after layer
+// shell exclusive zones (bars, docks) are subtracted. The coordinates are
+// global, matching the output position. An area that does not intersect
+// the output (or is empty) resets to the full output being usable.
+func (m *Model) OutputUsableArea(id OutputID, area Rect) {
+	out, ok := m.Outputs[id]
+	if !ok {
+		return
+	}
+	if area.Empty() || !out.Rect.Overlaps(area) {
+		area = Rect{}
+	}
+	if out.usable == area {
+		return
+	}
+	out.usable = area
 	m.markChanged()
 }
 
@@ -518,15 +553,16 @@ func (m *Model) WindowDimensions(id WindowID, width, height int32) {
 	}
 }
 
-// outputAreaForWorkspace returns the rect of the output showing the given
-// workspace, the focused output's rect if the workspace is hidden, or a
-// fallback rect if there are no outputs.
+// outputAreaForWorkspace returns the usable rect of the output showing the
+// given workspace, the focused output's usable rect if the workspace is
+// hidden, or a fallback rect if there are no outputs. Used for placing
+// floating windows.
 func (m *Model) outputAreaForWorkspace(name string) Rect {
 	if id := m.workspaceVisibleOn(name); id != 0 {
-		return m.Outputs[id].Rect
+		return m.Outputs[id].Usable()
 	}
 	if out, ok := m.Outputs[m.FocusedOutput]; ok {
-		return out.Rect
+		return out.Usable()
 	}
 	return Rect{W: 1920, H: 1080}
 }
