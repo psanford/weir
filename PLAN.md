@@ -195,17 +195,66 @@ Each milestone ends in something runnable and tested.
       back gets the workspace it was showing when it left, keyed by output
       name so it survives the synthetic-name-then-rename dance).
 
-## Beyond the initial plan
+## Known issues and gaps
 
-Ideas that have come up but are deliberately not part of v1:
+Updated as real-hardware testing surfaces them. Roughly ordered by how much
+they block daily use.
 
-- Per-edge interactive resize (currently always bottom-right).
-- Window rules (`rule add app-id=mpv float`).
-- An i3-compatible IPC shim so existing bar integrations work unmodified.
-- Per-edge layer shell handling refinements (weir currently honors the
-  compositor-computed non-exclusive area as-is).
-- Layout plugins as external processes.
-- Multi-seat support.
+### Missing features that block a normal desktop setup
+
+- **Status bar integration.** river 0.4 removed `river-status-unstable-v1`,
+  so waybar's built-in river module does not work at all. The replacement is
+  a custom waybar module (or any bar) fed by `weirctl subscribe` /
+  `weirctl get state`; weir should ship a small example.
+- **focus-follows-cursor.** weir is click-to-focus only. The protocol
+  delivers `pointer_enter`, so this is a policy flag plus a few lines.
+- **Window rules.** No `rule add -app-id mpv float` equivalent. Float, CSD,
+  and workspace-assignment rules keyed on app-id/title.
+- **Input device configuration.** Keyboard repeat rate, natural scrolling,
+  tap-to-click, per-device settings (`river-input-management-v1` /
+  `river-libinput-config-v1` are generated but unused).
+
+### Missing commands with no workaround
+
+- Keyboard move/snap/resize of floating windows (`move left 100`,
+  `snap left`, `resize horizontal -100`).
+- `view next` / `view prev` workspace cycling.
+- Layout and main-location cycling (`main-location-cycle monocle,left,top`).
+- `xcursor-theme <name> <size>` (the seat request exists in the protocol).
+- Runtime configuration of the default workspace set (fixed at 1-9).
+
+### Behavioral rough edges
+
+- Pointer-binding commands (`bind-pointer Super+Middle toggle-float`) act on
+  the *focused* window, not the window under the cursor.
+- A window that takes a smaller size than its tile slot (terminal cell
+  snapping) sits at the slot's top-left with a gap at the bottom/right
+  rather than being centered in the slot.
+- Interactive resize always tracks the bottom-right corner regardless of
+  which edge a CSD titlebar drag requested.
+- xdg-activation requests (an app asking to be focused/marked urgent) are
+  ignored; the urgent border color is defined but never used.
+- The init script needs a `sleep` between starting weir and the first
+  `weirctl` call; weirctl should retry the connection briefly instead.
+- Maximize, minimize, and window-menu requests from clients are ignored
+  (capabilities advertise fullscreen only, so compliant clients hide those
+  buttons).
+
+### Untested territory
+
+- Xwayland windows (override-redirect popups, position hints).
+- Crash-restart recovery (designed: river re-sends all state to a new WM
+  client; never exercised outside of theory).
+- Session lock interaction (weir logs the events and otherwise ignores them).
+- Real multi-monitor hardware (mixed scale factors in particular).
+
+### By design
+
+- dwm/river-classic-style tags (viewing multiple workspaces at once,
+  windows on multiple workspaces). weir uses xmonad workspaces.
+- Binding modes (`declare-mode passthrough`).
+- Multi-seat.
+- Drawing anything (bars, wallpaper, titlebars) inside weir itself.
 
 ## Reference material
 
