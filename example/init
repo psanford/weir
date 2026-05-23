@@ -27,7 +27,7 @@ weirctl set main-location left
 # --- key bindings (xmonad-flavored) ----------------------------------------
 mod=Super
 
-weirctl bind $mod+Return        spawn foot
+weirctl bind $mod+Shift+Return  spawn foot
 weirctl bind $mod+p             spawn 'fuzzel'
 weirctl bind $mod+Shift+c       close
 weirctl bind $mod+Shift+q       exit
@@ -37,7 +37,7 @@ weirctl bind $mod+k             focus prev
 weirctl bind $mod+m             focus main
 weirctl bind $mod+Shift+j       swap next
 weirctl bind $mod+Shift+k       swap prev
-weirctl bind $mod+Shift+Return  zoom
+weirctl bind $mod+Return        zoom
 
 weirctl bind $mod+h             set main-ratio -0.05
 weirctl bind $mod+l             set main-ratio +0.05
