@@ -67,3 +67,9 @@ Or run it nested in your current desktop session to interact with it:
 ```sh
 go build ./cmd/weir && river -c ./weir
 ```
+
+## License
+
+MIT. The protocol definitions vendored under `protocol/` carry their own
+permissive licenses in their embedded `<copyright>` blocks (wayland.xml from
+the Wayland project, river-*.xml from river).
