@@ -171,6 +171,13 @@ type Model struct {
 	// Rules are the window rules, applied in order to new windows.
 	Rules []Rule
 
+	// InputDevices are the input devices the compositor has reported.
+	InputDevices map[InputDeviceID]*InputDevice
+
+	// KeyboardLayouts are the desired xkb keymaps. For a given keyboard
+	// the last entry whose device glob matches wins.
+	KeyboardLayouts []KeyboardLayout
+
 	// op is the interactive pointer move/resize in progress, or nil.
 	op *pointerOp
 
@@ -215,6 +222,7 @@ func NewModel() *Model {
 		Borders:           DefaultBorders(),
 		Bindings:          make(map[bindingKey]Binding),
 		PointerBindings:   make(map[pointerBindingKey]PointerBinding),
+		InputDevices:      make(map[InputDeviceID]*InputDevice),
 		lastShown:         make(map[string]string),
 	}
 }

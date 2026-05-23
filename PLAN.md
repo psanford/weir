@@ -202,38 +202,12 @@ they block daily use.
 
 ### Missing features that block a normal desktop setup
 
-- **Per-keyboard layouts.** Needed: at least one user runs two keyboards
-  with different layouts simultaneously, which is exactly what
-  `river-xkb-config-v1` exists for (each physical keyboard gets its own
-  `river_xkb_keyboard_v1` with a per-device `set_keymap`).
-
-  Interim workaround: `XKB_DEFAULT_LAYOUT` / `XKB_DEFAULT_VARIANT` /
-  `XKB_DEFAULT_OPTIONS` in the environment before river starts — global to
-  all keyboards and fixed at launch.
-
-  Design notes for the implementation:
-  - `create_keymap` takes an fd holding a *compiled* XKB keymap, not
-    rules/model/layout/variant/options names. Compiling RMLVO is
-    libxkbcommon's job; to stay cgo-free, shell out to
-    `xkbcli compile-keymap --layout ... --options ...` (ships with
-    libxkbcommon), write its output to a memfd, pass that fd. Degrade with
-    a clear error if `xkbcli` is missing.
-  - Wait for the keymap object's `success`/`failure` event before using it
-    with `set_keymap`; surface `failure`'s error message to the user.
-  - Per-device targeting requires binding `river_input_manager_v1` to learn
-    device names — the same plumbing needed for libinput settings (below).
-  - Command surface:
-    `keyboard-layout [-rules R] [-model M] [-variant V] [-options O]
-    [-device <name>] <layout>` (no `-device` = all current and future
-    keyboards), `list-inputs` to discover device names. Remember the
-    configured keymap and apply it to keyboards plugged in later.
-  - Follow-ups enabled by the same protocol: runtime layout switching
-    within a multi-layout keymap (`set_layout_by_name`, bindable to a key)
-    and capslock/numlock control.
 - **Input device configuration.** Keyboard repeat rate, natural scrolling,
-  tap-to-click, per-device settings (`river-input-management-v1` /
-  `river-libinput-config-v1` are generated but unused). Shares the
-  input-manager plumbing with per-keyboard layouts above.
+  tap-to-click, per-device libinput settings. The input-manager plumbing
+  and device discovery (`list-inputs`) exist now; the remaining work is
+  exposing `set_repeat_info` / `river-libinput-config-v1` as commands.
+  Note that `keyboard-layout` requires `xkbcli` (ships with libxkbcommon)
+  on PATH to compile layout names into keymaps.
 
 ### Missing commands with no workaround
 

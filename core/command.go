@@ -52,6 +52,8 @@ func init() {
 		{"toggle-float", "toggle-float", "toggle floating for the focused window", cmdToggleFloat},
 		{"toggle-fullscreen", "toggle-fullscreen", "toggle fullscreen for the focused window", cmdToggleFullscreen},
 		{"rule", "rule add|del [-app-id <glob>] [-title <glob>] <action> | rule list", "manage window rules (float|no-float|ssd|csd|workspace <ws>)", cmdRule},
+		{"keyboard-layout", "keyboard-layout [-rules R] [-model M] [-variant V] [-options O] [-device <glob>] <layout>", "set the xkb keymap for matching keyboards", cmdKeyboardLayout},
+		{"list-inputs", "list-inputs", "list input devices", cmdListInputs},
 		{"workspace-mode", "workspace-mode independent|locked", "set how workspaces map to outputs", cmdWorkspaceMode},
 		{"bind", "bind <mods+key> <command...>", "bind a key chord to a command", cmdBind},
 		{"unbind", "unbind <mods+key>", "remove a key binding", cmdUnbind},

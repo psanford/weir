@@ -36,6 +36,17 @@ type Bridge struct {
 	// xkbBindings is the river_xkb_bindings_v1 global, or nil if the
 	// compositor does not advertise it (key bindings are then disabled).
 	xkbBindings *river.XkbBindingsV1
+	// inputManager and xkbConfig are the input device discovery and
+	// keyboard keymap configuration globals, or nil if not advertised.
+	inputManager *river.InputManagerV1
+	xkbConfig    *river.XkbConfigV1
+	inputDevices map[core.InputDeviceID]*inputDeviceState
+	xkbKeyboards map[*river.XkbKeyboardV1]*xkbKeyboardState
+	keymaps      map[string]*keymapState
+	nextInputID  core.InputDeviceID
+	// CompileKeymap overrides the RMLVO-to-keymap-text compiler. nil uses
+	// xkbcli compile-keymap. Exposed for tests.
+	CompileKeymap func(core.KeyboardLayout) (string, error)
 	// layerShell is the river_layer_shell_v1 global, or nil if the
 	// compositor does not advertise it. Binding it is what allows layer
 	// shell clients (bars, launchers, notification daemons, wallpaper) to
@@ -160,6 +171,9 @@ func New(conn *wire.Conn, model *core.Model, logger *slog.Logger) *Bridge {
 		outputGlobals:   make(map[uint32]uint32),
 		keyBindings:     make(map[chord]*keyBindingState),
 		pointerBindings: make(map[pointerChord]*pointerBindingState),
+		inputDevices:    make(map[core.InputDeviceID]*inputDeviceState),
+		xkbKeyboards:    make(map[*river.XkbKeyboardV1]*xkbKeyboardState),
+		keymaps:         make(map[string]*keymapState),
 	}
 }
 
@@ -175,6 +189,10 @@ func (b *Bridge) Bootstrap() error {
 	xkbFound := false
 	var lsName, lsVersion uint32
 	lsFound := false
+	var imName, imVersion uint32
+	imFound := false
+	var xcName, xcVersion uint32
+	xcFound := false
 	b.registry.OnGlobal = func(name uint32, iface string, version uint32) {
 		switch iface {
 		case river.WindowManagerV1Name:
@@ -186,6 +204,12 @@ func (b *Bridge) Bootstrap() error {
 		case river.LayerShellV1Name:
 			lsName, lsVersion = name, version
 			lsFound = true
+		case river.InputManagerV1Name:
+			imName, imVersion = name, version
+			imFound = true
+		case river.XkbConfigV1Name:
+			xcName, xcVersion = name, version
+			xcFound = true
 		case wl.OutputName:
 			b.outputGlobals[name] = version
 		}
@@ -220,6 +244,21 @@ func (b *Bridge) Bootstrap() error {
 	} else {
 		b.log.Warn("compositor does not advertise river_layer_shell_v1; bars, launchers, and wallpaper will not work")
 	}
+	if imFound {
+		if imVersion > river.InputManagerV1Version {
+			imVersion = river.InputManagerV1Version
+		}
+		b.inputManager = river.BindInputManagerV1(b.registry, imName, imVersion)
+	}
+	if xcFound && imFound {
+		if xcVersion > river.XkbConfigV1Version {
+			xcVersion = river.XkbConfigV1Version
+		}
+		b.xkbConfig = river.BindXkbConfigV1(b.registry, xcName, xcVersion)
+	} else {
+		b.log.Warn("compositor does not advertise river_xkb_config_v1; keyboard-layout is disabled")
+	}
+	b.installInputHandlers()
 	// A round trip guarantees we see unavailable (if it is coming) before
 	// we start doing real work: the protocol promises unavailable is the
 	// first and only event if it is sent at all.
@@ -525,6 +564,7 @@ func (b *Bridge) manage() {
 	b.model.CloseRequests = b.model.CloseRequests[:0]
 
 	b.syncBindings()
+	b.syncKeyboardLayouts()
 
 	b.arrangement = b.model.Arrange()
 	b.model.ClearChanged()

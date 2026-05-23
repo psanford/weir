@@ -60,6 +60,13 @@ func globMatch(pattern, s string) bool {
 	return err == nil && ok
 }
 
+// validateGlob returns an error if the pattern is not a valid path.Match
+// pattern.
+func validateGlob(pattern string) error {
+	_, err := path.Match(pattern, "")
+	return err
+}
+
 // applyRules runs every matching rule against a window, in order. Later
 // matching rules override earlier ones for the same property. Rules are
 // only applied while the window has never been displayed (the compositor

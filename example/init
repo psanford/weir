@@ -73,3 +73,8 @@ weirctl bind-pointer $mod+Right resize
 # weirctl rule add -app-id 'float*' float
 # weirctl rule add -app-id mpv float
 # weirctl rule add -app-id Slack workspace 9
+
+# --- keyboard layout --------------------------------------------------------
+# weirctl keyboard-layout -options ctrl:nocaps us
+# weirctl keyboard-layout -device '*Apple*' -variant mac de
+# weirctl list-inputs    # to discover device names
