@@ -1,6 +1,7 @@
 package bridge
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -77,19 +78,19 @@ func TestKeyboardLayoutPerDevice(t *testing.T) {
 		t.Fatalf("list-inputs = %q, %v", out, err)
 	}
 	b.Dirty()
-	f.collect()
 
-	// The manage sequence compiles both keymaps and creates them; no
-	// set_keymap yet because neither has been confirmed.
-	reqs := f.manageCycle()
-	creates := find(reqs, "river_xkb_config_v1", xkbConfigReqCreateKeymap)
+	// The keyboard-layout commands compile and create both keymaps
+	// eagerly so errors surface synchronously; no set_keymap yet because
+	// neither has been confirmed by the compositor.
+	creates := find(f.collect(), "river_xkb_config_v1", xkbConfigReqCreateKeymap)
 	if len(creates) != 2 {
-		t.Fatalf("got %d create_keymap requests, want 2: %v", len(creates), reqs)
+		t.Fatalf("got %d create_keymap requests, want 2", len(creates))
 	}
 	if len(compiled) != 2 {
 		t.Fatalf("compiled %v, want 2 distinct layouts", compiled)
 	}
-	if got := find(reqs, "river_xkb_keyboard_v1", xkbKeyboardReqSetKeymap); len(got) != 0 {
+	reqs := f.manageCycle()
+	if got := find(f.received, "river_xkb_keyboard_v1", xkbKeyboardReqSetKeymap); len(got) != 0 {
 		t.Fatalf("set_keymap sent before the keymap was confirmed")
 	}
 	f.renderCycle()
@@ -136,6 +137,42 @@ func TestKeyboardLayoutPerDevice(t *testing.T) {
 	}
 }
 
+// TestKeyboardLayoutCompileErrorIsSynchronous checks that a compilation
+// failure (xkbcli missing, bad layout name) is returned from the command
+// itself and the broken layout entry is dropped so it can be retried.
+func TestKeyboardLayoutCompileErrorIsSynchronous(t *testing.T) {
+	f, b := newFakeRiver(t)
+	fail := true
+	b.CompileKeymap = func(k core.KeyboardLayout) (string, error) {
+		if fail {
+			return "", fmt.Errorf("running xkbcli (is libxkbcommon installed?): not found")
+		}
+		return "xkb_keymap { ok }", nil
+	}
+	f.addOutput(0, 0, 1000, 600)
+	f.addSeat()
+	f.addKeyboard("kb")
+	f.manageCycle()
+	f.renderCycle()
+
+	_, err := b.runCommand([]string{"keyboard-layout", "us"})
+	if err == nil || !strings.Contains(err.Error(), "xkbcli") {
+		t.Fatalf("expected a synchronous xkbcli error, got %v", err)
+	}
+	if len(b.Model().KeyboardLayouts) != 0 {
+		t.Fatalf("failed layout left in the model: %v", b.Model().KeyboardLayouts)
+	}
+	// After fixing the problem (installing xkbcli), the same command
+	// works.
+	fail = false
+	if _, err := b.runCommand([]string{"keyboard-layout", "us"}); err != nil {
+		t.Fatalf("retry after fixing compilation failed: %v", err)
+	}
+	if got := find(f.collect(), "river_xkb_config_v1", xkbConfigReqCreateKeymap); len(got) != 1 {
+		t.Fatalf("got %d create_keymap after the retry, want 1", len(got))
+	}
+}
+
 // TestKeyboardLayoutFailure checks that a keymap the compositor rejects is
 // not applied and not retried every manage sequence.
 func TestKeyboardLayoutFailure(t *testing.T) {
@@ -148,16 +185,18 @@ func TestKeyboardLayoutFailure(t *testing.T) {
 	f.addKeyboard("kb")
 	f.manageCycle()
 	f.renderCycle()
-	b.runCommand([]string{"keyboard-layout", "xx"})
+	if _, err := b.runCommand([]string{"keyboard-layout", "xx"}); err != nil {
+		t.Fatalf("keyboard-layout failed at command time even though compilation succeeded: %v", err)
+	}
 	b.Dirty()
-	f.collect()
-	reqs := f.manageCycle()
-	creates := find(reqs, "river_xkb_config_v1", xkbConfigReqCreateKeymap)
+	creates := find(f.collect(), "river_xkb_config_v1", xkbConfigReqCreateKeymap)
 	if len(creates) != 1 {
 		t.Fatalf("got %d create_keymap, want 1", len(creates))
 	}
 	d := creates[0].decoder()
 	kmID, _ := d.Uint()
+	reqs := f.manageCycle()
+	_ = reqs
 	f.renderCycle()
 
 	e := &wire.Encoder{}

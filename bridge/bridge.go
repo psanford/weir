@@ -843,6 +843,11 @@ func (b *Bridge) Run(cmds <-chan Command) error {
 func (b *Bridge) runCommand(args []string) (string, error) {
 	out, err := b.model.Dispatch(args)
 	b.drainSideEffects()
+	if err == nil && len(args) > 0 && args[0] == "keyboard-layout" {
+		// Compile eagerly so a missing xkbcli or a bad layout name is
+		// reported to the caller instead of logged asynchronously.
+		err = b.validateKeyboardLayouts()
+	}
 	if b.model.ExitRequested && !b.exiting {
 		// End the entire Wayland session. The compositor will disconnect
 		// every client including weir; the run loop then returns cleanly.

@@ -32,6 +32,8 @@ type keymapState struct {
 	rmlvo string
 	// state is pending until the compositor reports success or failure.
 	state keymapResult
+	// err is the compilation or compositor error for a failed keymap.
+	err error
 	// waiting are the keyboards to apply this keymap to once it is ready.
 	waiting []*xkbKeyboardState
 	// file holds the keymap fd. It must stay referenced until the
@@ -110,6 +112,40 @@ func (b *Bridge) addXkbKeyboard(k *river.XkbKeyboardV1) {
 	}
 }
 
+// validateKeyboardLayouts eagerly compiles any layout that has not been
+// compiled yet, so that a keyboard-layout command fails synchronously with
+// a useful error (xkbcli missing, unknown layout name) instead of silently
+// succeeding and logging the failure later. A layout that fails to compile
+// is removed from the model so it is not retried forever.
+func (b *Bridge) validateKeyboardLayouts() error {
+	if b.xkbConfig == nil {
+		b.model.KeyboardLayouts = nil
+		return fmt.Errorf("the compositor does not support keyboard configuration (river_xkb_config_v1 not advertised)")
+	}
+	for _, layout := range b.model.KeyboardLayouts {
+		km := b.keymapFor(layout)
+		if km.state != keymapFailed {
+			continue
+		}
+		// Drop the entry and forget the failed compilation so the user
+		// can fix the problem (install xkbcli, correct the layout name)
+		// and retry without restarting weir.
+		delete(b.keymaps, layout.RMLVO())
+		kept := b.model.KeyboardLayouts[:0]
+		for _, l := range b.model.KeyboardLayouts {
+			if l != layout {
+				kept = append(kept, l)
+			}
+		}
+		b.model.KeyboardLayouts = kept
+		if km.err != nil {
+			return km.err
+		}
+		return fmt.Errorf("keymap compilation failed for %q", layout.String())
+	}
+	return nil
+}
+
 // syncKeyboardLayouts applies the model's desired keyboard layouts to every
 // xkb keyboard whose current keymap differs. Compilation and the
 // create_keymap round trip are asynchronous: keyboards wait on the keymap's
@@ -167,12 +203,14 @@ func (b *Bridge) keymapFor(layout core.KeyboardLayout) *keymapState {
 	if err != nil {
 		b.log.Error("keymap compilation failed", "layout", layout.String(), "err", err)
 		km.state = keymapFailed
+		km.err = err
 		return km
 	}
 	f, err := keymapFd(text)
 	if err != nil {
 		b.log.Error("creating keymap fd", "err", err)
 		km.state = keymapFailed
+		km.err = err
 		return km
 	}
 	km.file = f
@@ -193,6 +231,7 @@ func (b *Bridge) keymapFor(layout core.KeyboardLayout) *keymapState {
 	}
 	km.proxy.OnFailure = func(msg string) {
 		km.state = keymapFailed
+		km.err = fmt.Errorf("compositor rejected the keymap: %s", msg)
 		closeKeymapFd(km)
 		b.log.Error("compositor rejected keymap", "layout", layout.String(), "err", msg)
 		for _, kb := range km.waiting {
