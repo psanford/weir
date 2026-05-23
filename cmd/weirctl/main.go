@@ -20,6 +20,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"time"
 
 	"github.com/psanford/weir/ipc"
 )
@@ -46,7 +47,7 @@ func main() {
 			fatal(err)
 		}
 	}
-	conn, err := net.Dial("unix", path)
+	conn, err := dialWithRetry(path)
 	if err != nil {
 		fatal(fmt.Errorf("connecting to weir at %s: %w (is weir running?)", path, err))
 	}
@@ -93,6 +94,23 @@ func subscribe(conn net.Conn) {
 			}
 			return
 		}
+	}
+}
+
+// dialWithRetry connects to the control socket, retrying for a short period
+// if weir has not created it yet. This lets init scripts run weirctl
+// immediately after starting weir without a sleep.
+func dialWithRetry(path string) (net.Conn, error) {
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		conn, err := net.Dial("unix", path)
+		if err == nil {
+			return conn, nil
+		}
+		if time.Now().After(deadline) {
+			return nil, err
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 }
 

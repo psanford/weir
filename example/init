@@ -10,7 +10,7 @@ weir &
 
 # Give it a moment to take the window manager role and open its control
 # socket before configuring it.
-sleep 0.2
+# weirctl retries the connection briefly, so no sleep is needed here.
 
 # --- appearance -------------------------------------------------------------
 weirctl set border-width 2

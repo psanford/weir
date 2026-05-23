@@ -85,6 +85,9 @@ type Bridge struct {
 	lastFocus core.WindowID
 	// focusSent records whether focus has ever been explicitly set.
 	focusSent bool
+	// lastXcursorTheme/Size are the most recently sent cursor settings.
+	lastXcursorTheme string
+	lastXcursorSize  uint32
 
 	// Unavailable is set if the compositor sent the unavailable event.
 	unavailable bool
@@ -480,10 +483,13 @@ func (b *Bridge) addSeat(s *river.SeatV1) {
 		}
 	}
 	// Track which window the pointer is inside so pointer bindings know
-	// their target. Focus-follows-mouse is deliberately not implemented;
-	// focus moves on click/interaction only.
+	// their target, and hand the event to the model for the
+	// focus-follows-cursor policy.
 	s.OnPointerEnter = func(w *river.WindowV1) {
 		b.pointerWindow = b.idForProxy(w)
+		if b.pointerWindow != 0 {
+			b.model.PointerEntered(b.pointerWindow)
+		}
 	}
 	s.OnPointerLeave = func() {
 		b.pointerWindow = 0
@@ -545,6 +551,14 @@ func (b *Bridge) manage() {
 			b.lastFocus = focus
 			b.focusSent = true
 		}
+	}
+
+	// Cursor theme.
+	if b.seat != nil && b.model.XcursorTheme != "" &&
+		(b.model.XcursorTheme != b.lastXcursorTheme || b.model.XcursorSize != b.lastXcursorSize) {
+		b.seat.SetXcursorTheme(b.model.XcursorTheme, b.model.XcursorSize)
+		b.lastXcursorTheme = b.model.XcursorTheme
+		b.lastXcursorSize = b.model.XcursorSize
 	}
 
 	// Layer surfaces that do not request a specific output appear on the

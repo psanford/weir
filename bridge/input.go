@@ -130,6 +130,12 @@ func (b *Bridge) pointerBindingPressed(c pointerChord) {
 			b.log.Debug("pointer op start", "action", pb.Action, "window", b.pointerWindow)
 		}
 	case core.PointerActionCommand:
+		// Commands bound to a pointer button act on the window that was
+		// clicked, not whichever window happened to have keyboard focus:
+		// focus the hovered window first.
+		if b.pointerWindow != 0 {
+			b.model.WindowInteracted(b.pointerWindow)
+		}
 		b.log.Debug("pointer binding", "chord", pb.Chord(), "command", pb.Command)
 		if _, err := b.runCommand(pb.Command); err != nil {
 			b.log.Warn("pointer binding command failed", "chord", pb.Chord(), "err", err)

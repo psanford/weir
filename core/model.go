@@ -130,6 +130,15 @@ type Model struct {
 	// Settings that apply to new windows / all windows.
 	Borders BorderConfig
 
+	// FocusFollowsCursor moves keyboard focus to the window under the
+	// pointer as it moves, rather than only on click.
+	FocusFollowsCursor bool
+
+	// XcursorTheme and XcursorSize configure the pointer cursor. Empty
+	// theme means the compositor default.
+	XcursorTheme string
+	XcursorSize  uint32
+
 	// CloseRequests is the list of windows the user has asked to close.
 	// The bridge drains this during the next manage sequence by sending
 	// river_window_v1.close to each. Closing is a request to the client,
@@ -635,6 +644,15 @@ func (m *Model) WindowInteracted(id WindowID) {
 		return
 	}
 	m.focusWindow(w)
+}
+
+// PointerEntered records that the pointer moved into a window. Focus
+// follows it only if the focus-follows-cursor policy is enabled.
+func (m *Model) PointerEntered(id WindowID) {
+	if !m.FocusFollowsCursor {
+		return
+	}
+	m.WindowInteracted(id)
 }
 
 // focusWindow makes the given window the focused window of its workspace and

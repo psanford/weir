@@ -38,7 +38,7 @@ func init() {
 		{"swap", "swap next|prev|main", "swap the focused window within the stack", cmdSwap},
 		{"zoom", "zoom", "promote the focused window to main (or cycle if already main)", cmdZoom},
 		{"close", "close", "ask the focused window to close", cmdClose},
-		{"view", "view <workspace>", "show a workspace on the focused output", cmdView},
+		{"view", "view <workspace>|next|prev", "show a workspace on the focused output", cmdView},
 		{"pull", "pull <workspace>", "bring a workspace to the focused output, swapping if visible elsewhere", cmdPull},
 		{"send", "send <workspace>", "move the focused window to a workspace", cmdSend},
 		{"focus-output", "focus-output next|prev|left|right|up|down|<name>", "focus another output", cmdFocusOutput},
@@ -46,6 +46,9 @@ func init() {
 		{"set-layout", "set-layout tile|monocle", "set the focused workspace's layout", cmdSetLayout},
 		{"cycle-layout", "cycle-layout <l>[,<l>...]", "cycle the focused workspace through layouts (monocle|left|right|top|bottom)", cmdCycleLayout},
 		{"set", "set <option> <value>", "set a layout or appearance option", cmdSet},
+		{"move", "move left|right|up|down <px>", "move the focused window (floating it if tiled)", cmdMove},
+		{"snap", "snap left|right|up|down", "snap the focused window to an output edge (floating it if tiled)", cmdSnap},
+		{"resize", "resize horizontal|vertical <px>", "grow or shrink the focused window (floating it if tiled)", cmdResize},
 		{"toggle-float", "toggle-float", "toggle floating for the focused window", cmdToggleFloat},
 		{"toggle-fullscreen", "toggle-fullscreen", "toggle fullscreen for the focused window", cmdToggleFullscreen},
 		{"workspace-mode", "workspace-mode independent|locked", "set how workspaces map to outputs", cmdWorkspaceMode},
@@ -178,7 +181,13 @@ func cmdClose(m *Model, _ []string) (string, error) {
 
 func cmdView(m *Model, args []string) (string, error) {
 	if len(args) != 1 || args[0] == "" {
-		return "", cmdErrf("usage: view <workspace>")
+		return "", cmdErrf("usage: view <workspace>|next|prev")
+	}
+	switch args[0] {
+	case "next":
+		return "", m.viewRelative(1)
+	case "prev":
+		return "", m.viewRelative(-1)
 	}
 	return "", m.View(args[0], false)
 }
@@ -188,6 +197,69 @@ func cmdPull(m *Model, args []string) (string, error) {
 		return "", cmdErrf("usage: pull <workspace>")
 	}
 	return "", m.View(args[0], true)
+}
+
+// cycleWorkspaces returns the user-facing workspace names to cycle through
+// with view next/prev: the default workspaces in their declared order,
+// followed by any other non-empty workspaces in sorted order.
+func (m *Model) cycleWorkspaces() []string {
+	names := append([]string(nil), m.DefaultWorkspaces...)
+	seen := make(map[string]bool, len(names))
+	for _, n := range names {
+		seen[n] = true
+	}
+	var extra []string
+	for _, internal := range m.sortedWorkspaceNames() {
+		ws := m.Workspaces[internal]
+		if len(ws.Windows) == 0 {
+			continue
+		}
+		user := userWorkspaceName(internal)
+		if !seen[user] {
+			seen[user] = true
+			extra = append(extra, user)
+		}
+	}
+	sort.Strings(extra)
+	return append(names, extra...)
+}
+
+// userWorkspaceName strips the locked-mode "@output" suffix from an
+// internal workspace name.
+func userWorkspaceName(internal string) string {
+	if i := strings.LastIndexByte(internal, '@'); i > 0 {
+		return internal[:i]
+	}
+	return internal
+}
+
+// viewRelative advances the focused output to the next or previous
+// workspace in the cycle list.
+func (m *Model) viewRelative(dir int) error {
+	out, ok := m.Outputs[m.FocusedOutput]
+	if !ok {
+		return cmdErrf("no outputs")
+	}
+	names := m.cycleWorkspaces()
+	if len(names) == 0 {
+		return nil
+	}
+	cur := userWorkspaceName(out.Workspace)
+	idx := -1
+	for i, n := range names {
+		if n == cur {
+			idx = i
+			break
+		}
+	}
+	// Starting outside the list lands on the first or last entry.
+	next := 0
+	if idx >= 0 {
+		next = (idx + dir + len(names)) % len(names)
+	} else if dir < 0 {
+		next = len(names) - 1
+	}
+	return m.View(names[next], false)
 }
 
 // View shows the user-facing workspace name on the focused output.
@@ -552,6 +624,25 @@ func cmdSet(m *Model, args []string) (string, error) {
 			return "", cmdErrf("usage: set smart-borders on|off")
 		}
 		m.Borders.SmartBorders = vals[0] == "on"
+	case "focus-follows-cursor":
+		if len(vals) != 1 || (vals[0] != "on" && vals[0] != "off") {
+			return "", cmdErrf("usage: set focus-follows-cursor on|off")
+		}
+		m.FocusFollowsCursor = vals[0] == "on"
+	case "xcursor-theme":
+		if len(vals) < 1 || len(vals) > 2 {
+			return "", cmdErrf("usage: set xcursor-theme <name> [size]")
+		}
+		size := int64(24)
+		if len(vals) == 2 {
+			var err error
+			size, err = strconv.ParseInt(vals[1], 10, 32)
+			if err != nil || size <= 0 {
+				return "", cmdErrf("cursor size must be a positive integer")
+			}
+		}
+		m.XcursorTheme = vals[0]
+		m.XcursorSize = uint32(size)
 	default:
 		return "", cmdErrf("unknown option %q", opt)
 	}

@@ -206,8 +206,6 @@ they block daily use.
   so waybar's built-in river module does not work at all. The replacement is
   a custom waybar module (or any bar) fed by `weirctl subscribe` /
   `weirctl get state`; weir should ship a small example.
-- **focus-follows-cursor.** weir is click-to-focus only. The protocol
-  delivers `pointer_enter`, so this is a policy flag plus a few lines.
 - **Window rules.** No `rule add -app-id mpv float` equivalent. Float, CSD,
   and workspace-assignment rules keyed on app-id/title.
 - **Per-keyboard layouts.** Needed: at least one user runs two keyboards
@@ -245,16 +243,14 @@ they block daily use.
 
 ### Missing commands with no workaround
 
-- Keyboard move/snap/resize of floating windows (`move left 100`,
-  `snap left`, `resize horizontal -100`).
-- `view next` / `view prev` workspace cycling.
-- `xcursor-theme <name> <size>` (the seat request exists in the protocol).
 - Runtime configuration of the default workspace set (fixed at 1-9).
 
 ### Behavioral rough edges
 
-- Pointer-binding commands (`bind-pointer Super+Middle toggle-float`) act on
-  the *focused* window, not the window under the cursor.
+- focus-follows-cursor also raises the hovered window within its group
+  (focus and stacking are coupled); hovering across overlapping floating
+  windows shuffles their z-order.
+
 - A window that takes a smaller size than its tile slot (terminal cell
   snapping) sits at the slot's top-left with a gap at the bottom/right
   rather than being centered in the slot.
@@ -262,8 +258,6 @@ they block daily use.
   which edge a CSD titlebar drag requested.
 - xdg-activation requests (an app asking to be focused/marked urgent) are
   ignored; the urgent border color is defined but never used.
-- The init script needs a `sleep` between starting weir and the first
-  `weirctl` call; weirctl should retry the connection briefly instead.
 - Maximize, minimize, and window-menu requests from clients are ignored
   (capabilities advertise fullscreen only, so compliant clients hide those
   buttons).
