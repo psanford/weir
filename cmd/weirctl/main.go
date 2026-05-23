@@ -30,9 +30,12 @@ import (
 func main() {
 	socket := flag.String("socket", "", "control socket path (default: derived from the environment)")
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "usage: weirctl [-socket path] <command> [args...]\n")
-		fmt.Fprintf(os.Stderr, "       weirctl subscribe\n")
-		fmt.Fprintf(os.Stderr, "run \"weirctl help\" for the list of commands\n")
+		fmt.Fprintf(os.Stderr, "usage: weirctl [-socket path] <command> [args...]\n\n")
+		fmt.Fprintf(os.Stderr, "examples:\n")
+		fmt.Fprintf(os.Stderr, "  weirctl help                  every command, grouped by topic\n")
+		fmt.Fprintf(os.Stderr, "  weirctl get state | jq .      everything weir knows, as JSON\n")
+		fmt.Fprintf(os.Stderr, "  weirctl set                   every option for \"set\"\n")
+		fmt.Fprintf(os.Stderr, "  weirctl bind Super+j focus next\n")
 	}
 	flag.Parse()
 	args := flag.Args()
@@ -80,7 +83,19 @@ func main() {
 		fmt.Fprintln(os.Stderr, "weirctl:", resp.Error)
 		os.Exit(1)
 	}
+	if len(args) == 1 && args[0] == "help" {
+		fmt.Print(localHelp)
+	}
 }
+
+// localHelp documents the commands handled by weirctl itself rather than
+// sent to weir. Appended to the output of "weirctl help".
+const localHelp = `
+weirctl:
+  subscribe                                    stream a state snapshot on every change
+  wait-for-socket [timeout-seconds]            block until weir's control socket is up
+  -socket <path>                               use a specific control socket
+`
 
 // subscribe streams event lines to stdout until the connection closes.
 func subscribe(conn net.Conn) {

@@ -24,49 +24,74 @@ type command struct {
 	name    string
 	usage   string
 	summary string
+	group   string
 	run     func(m *Model, args []string) (string, error)
+}
+
+// helpGroups is the order sections appear in the help output. Every
+// command's group must be one of these.
+var helpGroups = []string{
+	"windows",
+	"workspaces",
+	"outputs",
+	"layout",
+	"settings",
+	"bindings",
+	"rules",
+	"input",
+	"queries",
+	"session",
 }
 
 // commands is the single table of every action weir can perform.
 // Keybindings, pointer bindings, the IPC socket, and tests all dispatch
 // through it. Output (if any) is a string; mutating commands return "".
+// Help output preserves this order within each group.
 var commands []command
 
 func init() {
 	commands = []command{
-		{"focus", "focus next|prev|main", "shift focus within the workspace", cmdFocus},
-		{"swap", "swap next|prev|main", "swap the focused window within the stack", cmdSwap},
-		{"zoom", "zoom", "promote the focused window to main (or cycle if already main)", cmdZoom},
-		{"close", "close", "ask the focused window to close", cmdClose},
-		{"view", "view <workspace>|next|prev", "show a workspace on the focused output", cmdView},
-		{"pull", "pull <workspace>", "bring a workspace to the focused output, swapping if visible elsewhere", cmdPull},
-		{"send", "send <workspace>", "move the focused window to a workspace", cmdSend},
-		{"focus-output", "focus-output next|prev|left|right|up|down|<name>", "focus another output", cmdFocusOutput},
-		{"send-to-output", "send-to-output next|prev|left|right|up|down|<name>", "move the focused window to another output", cmdSendToOutput},
-		{"set-layout", "set-layout tile|monocle", "set the focused workspace's layout", cmdSetLayout},
-		{"cycle-layout", "cycle-layout <l>[,<l>...]", "cycle the focused workspace through layouts (monocle|left|right|top|bottom)", cmdCycleLayout},
-		{"set", "set <option> <value...>", "set a layout, appearance, or behavior option (run \"set\" alone to list them)", cmdSet},
-		{"move", "move left|right|up|down <px>", "move the focused window (floating it if tiled)", cmdMove},
-		{"snap", "snap left|right|up|down", "snap the focused window to an output edge (floating it if tiled)", cmdSnap},
-		{"resize", "resize horizontal|vertical <px>", "grow or shrink the focused window (floating it if tiled)", cmdResize},
-		{"toggle-float", "toggle-float", "toggle floating for the focused window", cmdToggleFloat},
-		{"toggle-fullscreen", "toggle-fullscreen", "toggle fullscreen for the focused window", cmdToggleFullscreen},
-		{"rule", "rule add|del [-app-id <glob>] [-title <glob>] <action> | rule list", "manage window rules (float|no-float|ssd|csd|workspace <ws>)", cmdRule},
-		{"keyboard-layout", "keyboard-layout [-rules R] [-model M] [-variant V] [-options O] [-device <glob>] <layout>", "set the xkb keymap for matching keyboards", cmdKeyboardLayout},
-		{"list-inputs", "list-inputs", "list input devices", cmdListInputs},
-		{"input", "input <device-glob> <property> <value>", "set a libinput device property (run \"input\" alone to list them)", cmdInput},
-		{"workspace-mode", "workspace-mode independent|locked", "set how workspaces map to outputs", cmdWorkspaceMode},
-		{"bind", "bind <mods+key> <command...>", "bind a key chord to a command", cmdBind},
-		{"unbind", "unbind <mods+key>", "remove a key binding", cmdUnbind},
-		{"bind-pointer", "bind-pointer <mods+button> move|resize|<command...>", "bind a pointer button", cmdBindPointer},
-		{"unbind-pointer", "unbind-pointer <mods+button>", "remove a pointer binding", cmdUnbindPointer},
-		{"list-bindings", "list-bindings", "list all key and pointer bindings", cmdListBindings},
-		{"spawn", "spawn <command...>", "run a shell command", cmdSpawn},
-		{"get", "get state|outputs|windows|workspaces", "query weir state as JSON", cmdGet},
-		{"exit", "exit", "end the Wayland session", cmdExit},
-		{"help", "help [command]", "list commands or show usage for one", cmdHelp},
+		{"focus", "focus next|prev|main", "shift focus within the workspace", "windows", cmdFocus},
+		{"swap", "swap next|prev|main", "swap the focused window within the stack", "windows", cmdSwap},
+		{"zoom", "zoom", "promote the focused window to main (or cycle if already main)", "windows", cmdZoom},
+		{"close", "close", "ask the focused window to close", "windows", cmdClose},
+		{"toggle-float", "toggle-float", "toggle floating for the focused window", "windows", cmdToggleFloat},
+		{"toggle-fullscreen", "toggle-fullscreen", "toggle fullscreen for the focused window", "windows", cmdToggleFullscreen},
+		{"move", "move left|right|up|down <px>", "move the focused window (floating it if tiled)", "windows", cmdMove},
+		{"snap", "snap left|right|up|down", "snap the focused window to an output edge (floating it if tiled)", "windows", cmdSnap},
+		{"resize", "resize horizontal|vertical <px>", "grow or shrink the focused window (floating it if tiled)", "windows", cmdResize},
+
+		{"view", "view <workspace>|next|prev", "show a workspace on the focused output", "workspaces", cmdView},
+		{"pull", "pull <workspace>", "bring a workspace here, swapping if visible elsewhere", "workspaces", cmdPull},
+		{"send", "send <workspace>", "move the focused window to a workspace", "workspaces", cmdSend},
+		{"workspace-mode", "workspace-mode independent|locked", "set how workspaces map to outputs", "workspaces", cmdWorkspaceMode},
+
+		{"focus-output", "focus-output next|prev|left|right|up|down|<name>", "focus another output", "outputs", cmdFocusOutput},
+		{"send-to-output", "send-to-output next|prev|left|right|up|down|<name>", "move the focused window to another output", "outputs", cmdSendToOutput},
+
+		{"set-layout", "set-layout tile|monocle", "set the focused workspace's layout", "layout", cmdSetLayout},
+		{"cycle-layout", "cycle-layout <l>[,<l>...]", "cycle through layouts (monocle|left|right|top|bottom)", "layout", cmdCycleLayout},
+
+		{"set", "set <option> <value...>", "set a layout, appearance, or behavior option (run \"set\" alone to list them)", "settings", cmdSet},
+
+		{"bind", "bind <mods+key> <command...>", "bind a key chord to a command", "bindings", cmdBind},
+		{"unbind", "unbind <mods+key>", "remove a key binding", "bindings", cmdUnbind},
+		{"bind-pointer", "bind-pointer <mods+button> move|resize|<command...>", "bind a pointer button", "bindings", cmdBindPointer},
+		{"unbind-pointer", "unbind-pointer <mods+button>", "remove a pointer binding", "bindings", cmdUnbindPointer},
+		{"list-bindings", "list-bindings", "list all key and pointer bindings", "bindings", cmdListBindings},
+
+		{"rule", "rule add|del [-app-id <glob>] [-title <glob>] <action> | rule list", "manage window rules (float|no-float|ssd|csd|workspace <ws>)", "rules", cmdRule},
+
+		{"keyboard-layout", "keyboard-layout [-options O] [-variant V] [-device <glob>] ... <layout>", "set the xkb keymap for matching keyboards", "input", cmdKeyboardLayout},
+		{"input", "input <device-glob> <property> <value>", "set a libinput device property (run \"input\" alone to list them)", "input", cmdInput},
+		{"list-inputs", "list-inputs", "list input devices", "input", cmdListInputs},
+
+		{"get", "get state|outputs|windows|workspaces", "query weir state as JSON", "queries", cmdGet},
+		{"help", "help [command]", "list commands or show usage for one", "queries", cmdHelp},
+
+		{"spawn", "spawn <command...>", "run a shell command", "session", cmdSpawn},
+		{"exit", "exit", "end the Wayland session", "session", cmdExit},
 	}
-	sort.Slice(commands, func(i, j int) bool { return commands[i].name < commands[j].name })
 }
 
 // Dispatch parses and executes a command. The returned string is the
@@ -826,8 +851,29 @@ func cmdHelp(_ *Model, args []string) (string, error) {
 		}
 		return "", cmdErrf("unknown command %q", args[0])
 	}
-	for i := range commands {
-		fmt.Fprintf(&b, "%-24s %s\n", commands[i].name, commands[i].summary)
+
+	// Column width for the usage column: wide enough for most usages;
+	// the few very long ones overflow onto their own line.
+	const col = 44
+	for gi, group := range helpGroups {
+		if gi > 0 {
+			b.WriteString("\n")
+		}
+		fmt.Fprintf(&b, "%s:\n", group)
+		for i := range commands {
+			if commands[i].group != group {
+				continue
+			}
+			usage := commands[i].usage
+			if len(usage) > col {
+				fmt.Fprintf(&b, "  %s\n  %-*s %s\n", usage, col, "", commands[i].summary)
+			} else {
+				fmt.Fprintf(&b, "  %-*s %s\n", col, usage, commands[i].summary)
+			}
+		}
 	}
+	b.WriteString("\nrun \"help <command>\" for one command, \"set\" for all options,\n")
+	b.WriteString("\"input\" for device properties, \"list-bindings\" and \"rule list\" and\n")
+	b.WriteString("\"get state\" for the current configuration")
 	return b.String(), nil
 }
