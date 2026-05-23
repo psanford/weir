@@ -61,12 +61,19 @@ type WindowSnapshot struct {
 	Workspace  string   `json:"workspace"`
 	Floating   bool     `json:"floating,omitempty"`
 	Fullscreen bool     `json:"fullscreen,omitempty"`
-	X          int32    `json:"x"`
-	Y          int32    `json:"y"`
-	Width      int32    `json:"width"`
-	Height     int32    `json:"height"`
-	Visible    bool     `json:"visible"`
-	Focused    bool     `json:"focused"`
+	// Parent and the size hints are reported so "why did/didn't this
+	// window float by default" is answerable from get windows.
+	Parent    WindowID `json:"parent,omitempty"`
+	MinWidth  int32    `json:"min_width,omitempty"`
+	MinHeight int32    `json:"min_height,omitempty"`
+	MaxWidth  int32    `json:"max_width,omitempty"`
+	MaxHeight int32    `json:"max_height,omitempty"`
+	X         int32    `json:"x"`
+	Y         int32    `json:"y"`
+	Width     int32    `json:"width"`
+	Height    int32    `json:"height"`
+	Visible   bool     `json:"visible"`
+	Focused   bool     `json:"focused"`
 }
 
 // Snapshot builds a serializable copy of the model, including the computed
@@ -128,6 +135,11 @@ func (m *Model) Snapshot() Snapshot {
 			Workspace:  w.Workspace,
 			Floating:   w.Floating,
 			Fullscreen: w.FullscreenOn != 0,
+			Parent:     w.Parent,
+			MinWidth:   w.MinW,
+			MinHeight:  w.MinH,
+			MaxWidth:   w.MaxW,
+			MaxHeight:  w.MaxH,
 			X:          p.Rect.X,
 			Y:          p.Rect.Y,
 			Width:      p.Rect.W,
