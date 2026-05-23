@@ -248,7 +248,6 @@ they block daily use.
 - Keyboard move/snap/resize of floating windows (`move left 100`,
   `snap left`, `resize horizontal -100`).
 - `view next` / `view prev` workspace cycling.
-- Layout and main-location cycling (`main-location-cycle monocle,left,top`).
 - `xcursor-theme <name> <size>` (the seat request exists in the protocol).
 - Runtime configuration of the default workspace set (fixed at 1-9).
 

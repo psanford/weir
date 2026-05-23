@@ -43,7 +43,7 @@ weirctl bind $mod+h             set main-ratio -0.05
 weirctl bind $mod+l             set main-ratio +0.05
 weirctl bind $mod+comma         set main-count +1
 weirctl bind $mod+period        set main-count -1
-weirctl bind $mod+space         set-layout monocle
+weirctl bind $mod+space         cycle-layout monocle,left,top
 weirctl bind $mod+Shift+space   set-layout tile
 
 weirctl bind $mod+t             toggle-float

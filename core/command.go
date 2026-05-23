@@ -44,6 +44,7 @@ func init() {
 		{"focus-output", "focus-output next|prev|left|right|up|down|<name>", "focus another output", cmdFocusOutput},
 		{"send-to-output", "send-to-output next|prev|left|right|up|down|<name>", "move the focused window to another output", cmdSendToOutput},
 		{"set-layout", "set-layout tile|monocle", "set the focused workspace's layout", cmdSetLayout},
+		{"cycle-layout", "cycle-layout <l>[,<l>...]", "cycle the focused workspace through layouts (monocle|left|right|top|bottom)", cmdCycleLayout},
 		{"set", "set <option> <value>", "set a layout or appearance option", cmdSet},
 		{"toggle-float", "toggle-float", "toggle floating for the focused window", cmdToggleFloat},
 		{"toggle-fullscreen", "toggle-fullscreen", "toggle fullscreen for the focused window", cmdToggleFullscreen},
@@ -385,6 +386,73 @@ func cmdSetLayout(m *Model, args []string) (string, error) {
 		m.markChanged()
 	}
 	return "", nil
+}
+
+// cmdCycleLayout advances the focused workspace to the next entry in a
+// user-supplied list of layout specs. A spec is either "monocle" or a main
+// location ("left", "right", "top", "bottom", which imply the tile layout).
+// The current position in the cycle is derived from the workspace's actual
+// layout state, so the command is stateless and the cycle stays coherent
+// even if the layout is changed by other means in between.
+func cmdCycleLayout(m *Model, args []string) (string, error) {
+	if len(args) != 1 {
+		return "", cmdErrf("usage: cycle-layout <layout>[,<layout>...] (e.g. cycle-layout monocle,left,top)")
+	}
+	specs := strings.Split(args[0], ",")
+	if len(specs) < 2 {
+		return "", cmdErrf("cycle-layout needs at least two layouts to cycle between")
+	}
+	for _, s := range specs {
+		if !validLayoutSpec(s) {
+			return "", cmdErrf("invalid layout %q (want monocle|left|right|top|bottom)", s)
+		}
+	}
+	ws := m.focusedWorkspace()
+	if ws == nil {
+		return "", cmdErrf("no focused workspace")
+	}
+	cur := currentLayoutSpec(ws)
+	next := specs[0]
+	for i, s := range specs {
+		if s == cur {
+			next = specs[(i+1)%len(specs)]
+			break
+		}
+	}
+	applyLayoutSpec(ws, next)
+	m.markChanged()
+	return "", nil
+}
+
+// validLayoutSpec reports whether s is a valid cycle-layout entry.
+func validLayoutSpec(s string) bool {
+	if s == "monocle" {
+		return true
+	}
+	_, err := ParseMainLocation(s)
+	return err == nil
+}
+
+// currentLayoutSpec returns the cycle-layout spec describing the
+// workspace's current layout.
+func currentLayoutSpec(ws *Workspace) string {
+	if ws.Layout == LayoutMonocle {
+		return "monocle"
+	}
+	return string(ws.Params.MainLocation)
+}
+
+// applyLayoutSpec sets the workspace's layout to match a cycle-layout spec.
+// Switching to monocle preserves the main location so cycling back to a
+// tiled spec restores it.
+func applyLayoutSpec(ws *Workspace, spec string) {
+	if spec == "monocle" {
+		ws.Layout = LayoutMonocle
+		return
+	}
+	loc, _ := ParseMainLocation(spec)
+	ws.Layout = LayoutTile
+	ws.Params.MainLocation = loc
 }
 
 func cmdSet(m *Model, args []string) (string, error) {
