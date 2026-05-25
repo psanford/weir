@@ -257,13 +257,14 @@ they block daily use.
 ### Known upstream issues (not weir bugs, but weir users will hit them)
 
 - **Screens blanked by swayidle never come back on** (river 0.4 / wlroots
-  0.20). `wlopm --off X; sleep 5; wlopm --on X` reproduces it with no idle
-  daemon involved; `wlr-randr --off/--on` fails the same way. River 0.4
-  routes output power changes through a window manager transaction
-  (OutputManager.zig handlePowerManagerSetMode) and the panel never
-  re-powers after the transaction completes. Worked on river 0.3 / wlroots
-  0.18. Workaround: lock without blanking (`timeout N 'swaylock ...'`);
-  recover a stuck screen with a VT switch.
+  0.20, observed on Apple Silicon / asahi apple-dcp; river issue #1471).
+  `wlopm --off X; sleep 5; wlopm --on X` reproduces it with no idle daemon
+  involved. Diagnosis: the re-enable commit through wlroots' multi-output
+  `wlr_backend_commit()` is rejected by the kernel, while the identical
+  state committed per-output via `wlr_output_commit_state()` succeeds (and
+  river 0.3 / wlroots 0.18 works on the same kernel). A local river patch
+  adding a per-output fallback on commit failure fixes it. Without the
+  patch: lock without blanking, recover a stuck screen with a VT switch.
 - **xdg-activation is not forwarded to window managers** (detailed in the
   blocked-on-river section above).
 
