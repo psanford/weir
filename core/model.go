@@ -92,6 +92,13 @@ type Output struct {
 	usable Rect
 	// Workspace is the internal name of the workspace shown on this output.
 	Workspace string
+	// workspaceAutoAssigned is true while Workspace is the one weir picked
+	// automatically when the output appeared, rather than one the user
+	// chose or one restored by output name. The real output name arrives
+	// after the output itself (as a rename); a rename may replace an
+	// auto-assigned workspace with the remembered one for that name, but
+	// must never replace a user-chosen one.
+	workspaceAutoAssigned bool
 }
 
 // Usable returns the area of the output that windows should be arranged
@@ -386,6 +393,7 @@ func (m *Model) OutputAdded(id OutputID, name string, rect Rect) {
 		out.Workspace = prev
 	} else {
 		out.Workspace = m.nextHiddenWorkspace(id)
+		out.workspaceAutoAssigned = true
 	}
 	if m.FocusedOutput == 0 {
 		m.FocusedOutput = id
@@ -399,10 +407,11 @@ func (m *Model) OutputAdded(id OutputID, name string, rect Rect) {
 // internal names; only workspaces resolved after the rename use the new one.
 //
 // Because the real name arrives after OutputAdded, workspace restoration
-// for a re-plugged monitor happens here: if an output with this name was
-// previously removed while showing a workspace that is still hidden, and
-// this output is still showing the empty workspace it was auto-assigned,
-// switch to the remembered one.
+// for a re-plugged or DPMS-cycled output happens here: if an output with
+// this name was previously removed while showing a workspace that is still
+// hidden, and this output is still showing the workspace weir auto-assigned
+// it (the user has not explicitly viewed anything since it appeared),
+// switch back to the remembered one.
 func (m *Model) OutputRenamed(id OutputID, name string) {
 	out, ok := m.Outputs[id]
 	if !ok || out.Name == name || name == "" {
@@ -410,9 +419,10 @@ func (m *Model) OutputRenamed(id OutputID, name string) {
 	}
 	out.Name = name
 	if prev, ok := m.lastShown[name]; ok && prev != out.Workspace && m.workspaceVisibleOn(prev) == 0 {
-		if cur := m.Workspaces[out.Workspace]; cur != nil && len(cur.Windows) == 0 {
+		if out.workspaceAutoAssigned {
 			m.ensureWorkspace(prev)
 			out.Workspace = prev
+			out.workspaceAutoAssigned = false
 		}
 	}
 	m.markChanged()

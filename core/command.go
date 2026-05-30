@@ -309,6 +309,7 @@ func (m *Model) View(userName string, greedy bool) error {
 			name := m.ResolveWorkspace(userName, outID)
 			m.ensureWorkspace(name)
 			m.Outputs[outID].Workspace = name
+			m.Outputs[outID].workspaceAutoAssigned = false
 		}
 		m.markChanged()
 		return nil
@@ -318,6 +319,9 @@ func (m *Model) View(userName string, greedy bool) error {
 	name := m.ResolveWorkspace(userName, m.FocusedOutput)
 	m.ensureWorkspace(name)
 	if out.Workspace == name {
+		// Viewing the already-shown workspace is still an explicit choice:
+		// it must not be replaced by a later rename-time restoration.
+		out.workspaceAutoAssigned = false
 		return nil
 	}
 	if other := m.workspaceVisibleOn(name); other != 0 {
@@ -327,8 +331,10 @@ func (m *Model) View(userName string, greedy bool) error {
 			return nil
 		}
 		m.Outputs[other].Workspace = out.Workspace
+		m.Outputs[other].workspaceAutoAssigned = false
 	}
 	out.Workspace = name
+	out.workspaceAutoAssigned = false
 	m.markChanged()
 	return nil
 }

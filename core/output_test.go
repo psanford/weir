@@ -67,3 +67,58 @@ func TestOutputReplugDirectName(t *testing.T) {
 		t.Errorf("re-plugged output shows %q, want 9", m.Outputs[3].Workspace)
 	}
 }
+
+// TestSingleOutputDPMSRestoresWorkspace reproduces the laptop DPMS case: a
+// single output showing a non-default workspace blanks (output destroyed)
+// and comes back (re-added under a synthetic name, then renamed to its real
+// name). The workspace the user was on must be restored even though the
+// interim auto-assigned workspace (workspace 1) has windows on it.
+func TestSingleOutputDPMSRestoresWorkspace(t *testing.T) {
+	m := NewModel()
+	m.Borders.Width = 0
+	m.OutputAdded(1, "output-1", Rect{W: 2560, H: 1600})
+	m.OutputRenamed(1, "eDP-1")
+
+	// Windows on workspace 1 and workspace 3; the user is working on 3.
+	m.WindowAdded(10)
+	run(t, m, "view", "3")
+	m.WindowAdded(11)
+	if m.Outputs[1].Workspace != "3" {
+		t.Fatalf("setup: workspace = %q, want 3", m.Outputs[1].Workspace)
+	}
+
+	// Screen blanks: the output is destroyed.
+	m.OutputRemoved(1)
+
+	// Screen unblanks: new output, synthetic name first, then the rename.
+	m.OutputAdded(2, "output-2", Rect{W: 2560, H: 1600})
+	m.OutputRenamed(2, "eDP-1")
+
+	if got := m.Outputs[2].Workspace; got != "3" {
+		t.Errorf("after DPMS cycle the output shows %q, want 3 (the workspace the user was on)", got)
+	}
+	if !m.Arrange().Placements[11].Visible {
+		t.Errorf("the window the user was working on is not visible after the screen came back")
+	}
+}
+
+// TestRenameDoesNotOverrideUserChoice checks the guard the restoration must
+// keep: if the user explicitly views a workspace on the new output before
+// the rename event arrives, the rename must not yank it away.
+func TestRenameDoesNotOverrideUserChoice(t *testing.T) {
+	m := NewModel()
+	m.Borders.Width = 0
+	m.OutputAdded(1, "output-1", Rect{W: 2560, H: 1600})
+	m.OutputRenamed(1, "eDP-1")
+	run(t, m, "view", "3")
+	m.OutputRemoved(1)
+
+	m.OutputAdded(2, "output-2", Rect{W: 2560, H: 1600})
+	// The user views workspace 5 before the rename arrives.
+	run(t, m, "view", "5")
+	m.OutputRenamed(2, "eDP-1")
+
+	if got := m.Outputs[2].Workspace; got != "5" {
+		t.Errorf("rename overrode the user's explicit choice: showing %q, want 5", got)
+	}
+}
