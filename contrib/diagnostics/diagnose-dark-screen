@@ -1,0 +1,91 @@
+#!/bin/sh
+# Diagnose why the eDP panel stays dark after `wlopm --on eDP-1`.
+#
+# Run from a TTY or over SSH *while the screen is stuck dark*, before
+# VT-switching to recover. Everything here is read-only.
+#
+#   OUT=eDP-1 RIVER_LOG=~/.cache/river-session.log sh diagnose-dark-screen.sh
+#
+# Defaults below match a stock SDDM setup.
+
+OUT="${OUT:-eDP-1}"
+RIVER_LOG="${RIVER_LOG:-$HOME/.local/share/sddm/wayland-session.log}"
+
+failed=unknown
+kenabled=unknown
+kdpms=unknown
+blpower=unknown
+blbright=unknown
+
+echo "##### 1. river: did the output commit fail? #####"
+if [ -r "$RIVER_LOG" ]; then
+    if grep -qiE "failed to commit|failed to modeset" "$RIVER_LOG"; then
+        failed=yes
+        grep -niE "failed to commit|failed to modeset|applying output configuration|dpms" "$RIVER_LOG" | tail -8
+    else
+        failed=no
+        echo "(no commit/modeset failure in $RIVER_LOG)"
+        grep -niE "applying output configuration|dpms" "$RIVER_LOG" | tail -4
+    fi
+else
+    echo "river log not found at $RIVER_LOG"
+    echo "re-run with RIVER_LOG=/path/to/it (or check journalctl --user -b)"
+fi
+
+echo
+echo "##### 2. kernel: connector state for $OUT #####"
+for d in /sys/class/drm/card*-"$OUT"; do
+    [ -e "$d/enabled" ] || continue
+    kenabled=$(cat "$d/enabled")
+    kdpms=$(cat "$d/dpms")
+    echo "$d"
+    echo "  enabled = $kenabled"
+    echo "  dpms    = $kdpms"
+    echo "  status  = $(cat "$d/status")"
+done
+[ "$kenabled" = unknown ] && echo "no /sys/class/drm/*-$OUT found (check: ls /sys/class/drm/)"
+
+echo
+echo "##### 3. backlight #####"
+for b in /sys/class/backlight/*; do
+    [ -e "$b/brightness" ] || continue
+    blbright=$(cat "$b/brightness")
+    blpower=$(cat "$b/bl_power" 2>/dev/null || echo "n/a")
+    echo "$(basename "$b"): brightness=$blbright/$(cat "$b/max_brightness") bl_power=$blpower (0=on, 4=off)"
+done
+[ "$blbright" = unknown ] && echo "no /sys/class/backlight/* found"
+
+echo
+echo "##### 4. recent kernel messages (drm / dcp / edp / backlight) #####"
+{ journalctl -k -n 3000 --no-pager 2>/dev/null || dmesg 2>/dev/null; } \
+    | grep -iE "drm|dcp|edp|backlight|atomic" | tail -20 \
+    || echo "(could not read the kernel log without root)"
+
+echo
+echo "##### verdict #####"
+if [ "$failed" = yes ]; then
+    echo "River's output commit FAILED -> this is issue #1471's failure mode."
+    echo "Next step: echo 0x1ff | sudo tee /sys/module/drm/parameters/debug,"
+    echo "reproduce, capture dmesg, attach to the issue."
+elif [ "$failed" = no ] && [ "$kenabled" = enabled ]; then
+    if [ "$blpower" = 4 ] || [ "$blbright" = 0 ]; then
+        echo "The commit SUCCEEDED and the kernel thinks the display is on,"
+        echo "but the BACKLIGHT is off. This is not river issue #1471 -- it is"
+        echo "a backlight power-sequencing problem. Workaround: add a"
+        echo "backlight poke to the resume command, e.g."
+        echo "  resume 'wlopm --on $OUT; brightnessctl set 50%'"
+        echo "and report it against the kernel backlight/panel driver."
+    else
+        echo "The commit SUCCEEDED, the kernel thinks the display is on, and"
+        echo "the backlight claims to be on -- yet the panel is dark. That"
+        echo "points at the DRM panel driver / link training. Capture"
+        echo "drm.debug=0x1ff around the reproduction and report to the"
+        echo "kernel / Asahi, cc river issue #1471."
+    fi
+elif [ "$kenabled" = disabled ]; then
+    echo "The kernel still has $OUT disabled: river either never attempted"
+    echo "the enable or reverted it without logging a failure. Capture"
+    echo "river -log-level debug around the reproduction."
+else
+    echo "Inconclusive -- paste the full output above."
+fi

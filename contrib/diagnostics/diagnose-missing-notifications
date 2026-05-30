@@ -1,0 +1,110 @@
+#!/bin/sh
+# Diagnose why mako notifications are not appearing under river/weir.
+# Run from a terminal INSIDE the session while notifications are broken.
+# Read-only except for sending test notifications and (optionally, with
+# --restart-mako / --restart-weir) restarting those daemons to bisect.
+#
+# The decision tree:
+#   notification listed by mako but not visible  -> compositor side (river/weir)
+#   notification not listed by mako              -> dbus/mako side
+#   restart mako fixes it                        -> mako internal state bug
+#   restart mako does not fix, restart weir does -> weir bug
+#   neither fixes it                             -> river bug
+
+set -u
+mode="${1:-check}"
+
+say() { printf '%s\n' "$*"; }
+hr()  { say "-----------------------------------------------------------"; }
+
+# Find the mako process. On NixOS the real process is often the wrapper's
+# target (.mako-wrapped); plain `pgrep -x mako` misses it.
+find_mako() {
+    pgrep -x mako | head -1 && return
+    pgrep -x .mako-wrapped | head -1 && return
+    pgrep -f '/bin/mako$' | head -1
+}
+
+say "##### mako process #####"
+pid=$(find_mako)
+if [ -z "${pid:-}" ]; then
+    say "VERDICT: mako is NOT RUNNING (checked: mako, .mako-wrapped, */bin/mako)."
+    say "Start it and re-test."
+    exit 0
+fi
+say "mako pid $pid, started $(ps -o lstart= -p "$pid"), cmd: $(ps -o args= -p "$pid")"
+
+say
+say "##### mako state #####"
+say "modes active:    $(makoctl mode | tr '\n' ' ')"
+say "currently shown: $(makoctl list | grep -c '^Notification')"
+say "in history:      $(makoctl history | grep -c '^Notification')"
+
+say
+say "##### test notification #####"
+marker="diag-$(date +%s)"
+notify-send -a diag "$marker" "diagnostic test notification"
+sleep 1
+listed=$(makoctl list | grep -c "$marker")
+say "sent '$marker'; mako lists it: $listed"
+say
+say ">>> LOOK AT YOUR SCREEN NOW. Is the test notification visible? <<<"
+say
+
+say "##### compositor-side surface evidence #####"
+# river logs layer surface map/unmap at debug level; check the common log
+# locations. Only populated if river runs with -log-level debug.
+found_log=0
+for log in "$HOME/.local/share/sddm/wayland-session.log" "$HOME/.cache/river-session.log"; do
+    [ -r "$log" ] || continue
+    recent=$(grep -a "layer surface 'notifications'" "$log" | tail -4)
+    if [ -n "$recent" ]; then
+        found_log=1
+        say "from $log:"
+        say "$recent"
+    fi
+done
+[ "$found_log" = 0 ] && {
+    say "(no 'layer surface' lines found = river is not logging at debug level;"
+    say " add -log-level debug to river's Exec for the full picture)"
+}
+
+say
+hr
+say "INTERPRETATION"
+hr
+if [ "$listed" -ge 1 ]; then
+    say "mako ACCEPTED the notification and believes it is displayed."
+    say "If you cannot see it on screen, the failure is compositor-side."
+    say "Next steps, in order:"
+    say "  1. $0 --restart-mako   (if this fixes it: mako surface-state bug)"
+    say "  2. $0 --restart-weir   (if this fixes it: weir bug -- save the weir log)"
+    say "  3. If neither fixes it: river bug -- capture river debug log"
+else
+    say "mako did NOT register the notification: the problem is on the"
+    say "dbus/mako side, not the compositor. Check:"
+    say "  - is another notification daemon holding the dbus name?"
+    say "    busctl --user status org.freedesktop.Notifications | head -3"
+    say "  - makoctl history | head   (did it go straight to history?)"
+fi
+
+case "$mode" in
+--restart-mako)
+    say; say "Restarting mako..."
+    kill "$pid"; sleep 0.5
+    (mako >/dev/null 2>&1 &)
+    sleep 1
+    notify-send -a diag "after-mako-restart" "did this appear?"
+    say "Sent 'after-mako-restart'. Visible?  yes -> mako bug, captured above."
+    ;;
+--restart-weir)
+    say; say "Restarting weir (windows freeze ~1s, the session survives)..."
+    pkill -x weir; sleep 1
+    (weir >/dev/null 2>&1 &)
+    weirctl wait-for-socket
+    [ -r "$HOME/.config/river/weir.conf" ] && . "$HOME/.config/river/weir.conf"
+    sleep 1
+    notify-send -a diag "after-weir-restart" "did this appear?"
+    say "Sent 'after-weir-restart'. Visible?  yes -> weir bug; save the old weir log NOW."
+    ;;
+esac
